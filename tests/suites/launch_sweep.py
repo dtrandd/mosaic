@@ -6,8 +6,7 @@ Run the profiler OTEL suite once per row of a sweep table, then chart the result
 
 Reads ``sweep.config``, rewrites the named keys in the profile before each run, and writes that
 row's report to its own file. Aborts on the first run that fails, and restores the profile on
-any exit so an interrupted sweep never leaves a modified file behind -- the same contract as
-``launch_sweep.sh``, plus result extraction and graphing.
+any exit so an interrupted sweep never leaves a modified file behind.
 
 Usage::
 
@@ -47,7 +46,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-#: Consecutive failures that end a --keep-going sweep. 
+#: Consecutive failures that end a --keep-going sweep.
 CONSECUTIVE_FAILURE_LIMIT = 2
 
 ABBREV = {
@@ -113,9 +112,7 @@ def parse_config(path: Path) -> tuple[list[str], list[SweepRow]]:
             header = fields
             continue
         if len(fields) != len(header):
-            sys.exit(
-                f"{path}:{number}: {len(fields)} value(s) for {len(header)} column(s): {line}"
-            )
+            sys.exit(f"{path}:{number}: {len(fields)} value(s) for {len(header)} column(s): {line}")
         rows.append(SweepRow(index=len(rows) + 1, values=dict(zip(header, fields))))
 
     if not header:
@@ -170,9 +167,7 @@ def find_key_line(lines: list[str], key: str) -> int:
         # A parent is "name:" with nothing after it; a leaf is "name: value".
         pattern = re.compile(rf"^[ \t]*{re.escape(part)}:[ \t]*{'\\S' if leaf else '$'}")
         hits = [
-            index
-            for index in range(start, stop)
-            if pattern.match(lines[index]) and _indent_of(lines[index]) > depth
+            index for index in range(start, stop) if pattern.match(lines[index]) and _indent_of(lines[index]) > depth
         ]
         if len(hits) != 1:
             where = ".".join(parts[: position + 1])
@@ -185,9 +180,11 @@ def find_key_line(lines: list[str], key: str) -> int:
         depth = _indent_of(lines[index])
         start = index + 1
         stop = next(
-            (i for i in range(start, len(lines))
-             if lines[i].strip() and not lines[i].lstrip().startswith("#")
-             and _indent_of(lines[i]) <= depth),
+            (
+                i
+                for i in range(start, len(lines))
+                if lines[i].strip() and not lines[i].lstrip().startswith("#") and _indent_of(lines[i]) <= depth
+            ),
             len(lines),
         )
     raise AssertionError("unreachable")
@@ -280,8 +277,7 @@ INK_MUTED = "#52514e"
 GRID = "#dcdcd8"
 
 
-def _style_axes(ax, title: str, xlabel: str, ylabel: str, log_x: bool, xticks=None,
-                log_y: bool = False) -> None:
+def _style_axes(ax, title: str, xlabel: str, ylabel: str, log_x: bool, xticks=None, log_y: bool = False) -> None:
     """Recessive grid and axes, explicit surface, no top/right spines."""
     ax.set_title(title, color=INK, fontsize=12, loc="left", pad=12)
     ax.set_xlabel(xlabel, color=INK_MUTED, fontsize=10)
@@ -342,8 +338,17 @@ def make_graphs(rows: list[dict[str, str]], out_dir: Path) -> list[Path]:
             return
         fig, ax = plt.subplots(figsize=(8, 4.6), facecolor=SURFACE)
         for values, (_, label, color) in zip(data[1:], plots):
-            ax.plot(data[0], values, color=color, linewidth=2, marker="o", markersize=7,
-                    markeredgecolor=SURFACE, markeredgewidth=1.5, label=label)
+            ax.plot(
+                data[0],
+                values,
+                color=color,
+                linewidth=2,
+                marker="o",
+                markersize=7,
+                markeredgecolor=SURFACE,
+                markeredgewidth=1.5,
+                label=label,
+            )
         _style_axes(ax, title, xlabel, ylabel, log_x, concurrencies if log_x else None, log_y)
         # A legend is present whenever there are two series; a single series is named by the
         # title, so a one-entry legend box would be noise.
@@ -353,36 +358,44 @@ def make_graphs(rows: list[dict[str, str]], out_dir: Path) -> list[Path]:
         written.append(_save(fig, out_dir / name))
         plt.close(fig)
 
-
     line_chart(
         "throughput_generated_vs_concurrency.png",
         "Generated-token throughput vs client concurrency",
-        "max_concurrency", "max_concurrency (requests in flight, log2)",
+        "max_concurrency",
+        "max_concurrency (requests in flight, log2)",
         "generated tokens / second",
         [("output_tok_per_s", "generated only", SERIES_1)],
     )
     line_chart(
         "throughput_total_vs_concurrency.png",
         "Total-token throughput (prompt + generated) vs client concurrency",
-        "max_concurrency", "max_concurrency (log2)", "total tokens / second",
+        "max_concurrency",
+        "max_concurrency (log2)",
+        "total tokens / second",
         [("total_tok_per_s", "prompt + generated", SERIES_2)],
     )
     line_chart(
         "throughput_generated_vs_num_prompts.png",
         "Generated-token throughput vs prompts per run",
-        "num_prompts", "num_prompts (log2)", "generated tokens / second",
+        "num_prompts",
+        "num_prompts (log2)",
+        "generated tokens / second",
         [("output_tok_per_s", "generated only", SERIES_1)],
     )
     line_chart(
         "throughput_total_vs_num_prompts.png",
         "Total-token throughput (prompt + generated) vs prompts per run",
-        "num_prompts", "num_prompts (log2)", "total tokens / second",
+        "num_prompts",
+        "num_prompts (log2)",
+        "total tokens / second",
         [("total_tok_per_s", "prompt + generated", SERIES_2)],
     )
     line_chart(
         "ttft_vs_concurrency.png",
         "Time to first token vs client concurrency",
-        "max_concurrency", "max_concurrency (log2)", "TTFT (ms, log)",
+        "max_concurrency",
+        "max_concurrency (log2)",
+        "TTFT (ms, log)",
         [("ttft_mean_ms", "mean", SERIES_1), ("ttft_p99_ms", "p99", SERIES_2)],
         # TTFT runs from tens of milliseconds to tens of seconds across the sweep; on a linear
         # axis every row below saturation sits flat on the baseline.
@@ -391,13 +404,17 @@ def make_graphs(rows: list[dict[str, str]], out_dir: Path) -> list[Path]:
     line_chart(
         "tpot_vs_concurrency.png",
         "Time per output token vs client concurrency",
-        "max_concurrency", "max_concurrency (log2)", "TPOT (ms)",
+        "max_concurrency",
+        "max_concurrency (log2)",
+        "TPOT (ms)",
         [("tpot_mean_ms", "mean", SERIES_1), ("tpot_p99_ms", "p99", SERIES_2)],
     )
     line_chart(
         "request_throughput_vs_concurrency.png",
         "Request throughput vs client concurrency",
-        "max_concurrency", "max_concurrency (log2)", "requests / second",
+        "max_concurrency",
+        "max_concurrency (log2)",
+        "requests / second",
         [("req_per_s", "requests/s", SERIES_1)],
     )
 
@@ -409,10 +426,24 @@ def make_graphs(rows: list[dict[str, str]], out_dir: Path) -> list[Path]:
     if per_request:
         per_request.sort()
         fig, ax = plt.subplots(figsize=(8, 4.6), facecolor=SURFACE)
-        ax.plot([c for c, _ in per_request], [v for _, v in per_request], color=SERIES_1,
-                linewidth=2, marker="o", markersize=7, markeredgecolor=SURFACE, markeredgewidth=1.5)
-        _style_axes(ax, "Scaling efficiency: generated tokens/s per request in flight",
-                    "max_concurrency (log2)", "tokens / second / request", True, concurrencies)
+        ax.plot(
+            [c for c, _ in per_request],
+            [v for _, v in per_request],
+            color=SERIES_1,
+            linewidth=2,
+            marker="o",
+            markersize=7,
+            markeredgecolor=SURFACE,
+            markeredgewidth=1.5,
+        )
+        _style_axes(
+            ax,
+            "Scaling efficiency: generated tokens/s per request in flight",
+            "max_concurrency (log2)",
+            "tokens / second / request",
+            True,
+            concurrencies,
+        )
         written.append(_save(fig, out_dir / "scaling_efficiency.png"))
         plt.close(fig)
 
@@ -424,17 +455,38 @@ def make_graphs(rows: list[dict[str, str]], out_dir: Path) -> list[Path]:
     if pareto:
         pareto.sort(key=lambda item: float(item[2]))
         fig, ax = plt.subplots(figsize=(8, 4.6), facecolor=SURFACE)
-        ax.plot([p[0] for p in pareto], [p[1] for p in pareto], color=SERIES_1, linewidth=2,
-                marker="o", markersize=8, markeredgecolor=SURFACE, markeredgewidth=1.5,
-                alpha=0.95, zorder=3)
+        ax.plot(
+            [p[0] for p in pareto],
+            [p[1] for p in pareto],
+            color=SERIES_1,
+            linewidth=2,
+            marker="o",
+            markersize=8,
+            markeredgecolor=SURFACE,
+            markeredgewidth=1.5,
+            alpha=0.95,
+            zorder=3,
+        )
         for ttft, throughput, concurrency in pareto:
-            ax.annotate(f"c={concurrency}", (ttft, throughput), textcoords="offset points",
-                        xytext=(7, -3), color=INK_MUTED, fontsize=8)
+            ax.annotate(
+                f"c={concurrency}",
+                (ttft, throughput),
+                textcoords="offset points",
+                xytext=(7, -3),
+                color=INK_MUTED,
+                fontsize=8,
+            )
         # Log on both axes: throughput and tail latency each span two orders of magnitude
         # across the sweep, and on linear axes the low-concurrency rows collapse into one
         # blob with their labels overprinting each other.
-        _style_axes(ax, "Throughput vs tail latency (each point is one sweep row)",
-                    "TTFT p99 (ms, log)", "generated tokens / second (log)", False, log_y=True)
+        _style_axes(
+            ax,
+            "Throughput vs tail latency (each point is one sweep row)",
+            "TTFT p99 (ms, log)",
+            "generated tokens / second (log)",
+            False,
+            log_y=True,
+        )
         ax.set_xscale("log")
         written.append(_save(fig, out_dir / "throughput_vs_ttft_p99.png"))
         plt.close(fig)
@@ -467,28 +519,34 @@ def main() -> int:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--config", type=Path, default=SCRIPT_DIR / "sweep.config")
-    parser.add_argument("--profile", default=os.environ.get("PROFILE", "cai_4n"),
-                        help="profile name for --workload-profile")
-    parser.add_argument("--label", default=os.environ.get("LABEL"),
-                        help="tag at the front of each report filename "
-                             "(default: derived from the model being served)")
-    parser.add_argument("--out-dir", type=Path, default=None,
-                        help="reports, logs and CSV go here (default /tmp/cai_sweep_<stamp>)")
-    parser.add_argument("--model", default=os.environ.get("MODEL"),
-                        help="written to serving.model before every run")
+    parser.add_argument(
+        "--profile", default=os.environ.get("PROFILE", "cai_4n"), help="profile name for --workload-profile"
+    )
+    parser.add_argument(
+        "--label",
+        default=os.environ.get("LABEL"),
+        help="tag at the front of each report filename (default: derived from the model being served)",
+    )
+    parser.add_argument(
+        "--out-dir", type=Path, default=None, help="reports, logs and CSV go here (default /tmp/cai_sweep_<stamp>)"
+    )
+    parser.add_argument("--model", default=os.environ.get("MODEL"), help="written to serving.model before every run")
     parser.add_argument("--pytest-k", default=os.environ.get("PYTEST_K", "not nccl_workload"))
-    parser.add_argument("--report-ext", default=os.environ.get("REPORT_EXT", "html"),
-                        choices=["html", "md"])
+    parser.add_argument("--report-ext", default=os.environ.get("REPORT_EXT", "html"), choices=["html", "md"])
     parser.add_argument("--start", type=int, default=1, help="resume at this row (1-based)")
     parser.add_argument("--only", type=int, default=None, help="run just this row")
     parser.add_argument("--list", action="store_true", help="show the table and exit")
     parser.add_argument("--dry-run", action="store_true", help="print the plan, change nothing")
-    parser.add_argument("--keep-going", action="store_true",
-                        help=f"carry on after a failed row, stopping only after "
-                             f"{CONSECUTIVE_FAILURE_LIMIT} failures in a row")
-    parser.add_argument("--graph", action="store_true",
-                        help="chart the results; with --out-dir and no rows to run, charts an "
-                             "existing sweep without running anything")
+    parser.add_argument(
+        "--keep-going",
+        action="store_true",
+        help=f"carry on after a failed row, stopping only after {CONSECUTIVE_FAILURE_LIMIT} failures in a row",
+    )
+    parser.add_argument(
+        "--graph",
+        action="store_true",
+        help="chart the results; with --out-dir and no rows to run, charts an existing sweep without running anything",
+    )
     args = parser.parse_args()
 
     profile_path = SCRIPT_DIR / "profiler_otel" / "profiles" / f"{args.profile}.yaml"
@@ -581,15 +639,24 @@ def main() -> int:
 
             started = time.time()
             command = [
-                "uv", "run", "pytest", "-v",
-                "--workload-profile", args.profile,
-                "-k", args.pytest_k,
+                "uv",
+                "run",
+                "pytest",
+                "-v",
+                "--workload-profile",
+                args.profile,
+                "-k",
+                args.pytest_k,
                 f"--report-file={report}",
             ]
             with log.open("w") as handle:
                 process = subprocess.run(
-                    command, cwd=SCRIPT_DIR, env=env, stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, text=True,
+                    command,
+                    cwd=SCRIPT_DIR,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
                 )
                 handle.write(process.stdout)
             print(process.stdout, end="")
@@ -606,8 +673,9 @@ def main() -> int:
                 consecutive += 1
                 failures.append(row)
                 exit_code = process.returncode
-                print(f"         FAILED (pytest exit {process.returncode}) after "
-                      f"{elapsed / 60:.0f}m {elapsed % 60:.0f}s")
+                print(
+                    f"         FAILED (pytest exit {process.returncode}) after {elapsed / 60:.0f}m {elapsed % 60:.0f}s"
+                )
                 if not args.keep_going:
                     print()
                     failed_row = row
@@ -646,8 +714,7 @@ def main() -> int:
     if not args.dry_run:
         total = time.time() - sweep_started
         passed = sum(1 for record in records if record.get("status") == "passed")
-        print(f"Completed {passed} of {len(records)} row(s) in "
-              f"{total // 3600:.0f}h {(total % 3600) // 60:.0f}m.")
+        print(f"Completed {passed} of {len(records)} row(s) in {total // 3600:.0f}h {(total % 3600) // 60:.0f}m.")
         if args.graph and records:
             written = make_graphs(load_results_csv(csv_path), out_dir)
             print(f"Wrote {len(written)} chart(s):")

@@ -10,9 +10,6 @@ report to its own file, collects every run's numbers into one CSV, and charts th
 find where a deployment saturates: the concurrency at which throughput stops rising and latency
 starts climbing.
 
-`launch_sweep.sh` is the same runner without result extraction or graphing. Both read the same
-`sweep.config`, so you can start a sweep with one and resume it with the other.
-
 ---
 
 ## Before you start
@@ -25,11 +22,10 @@ answers:
 curl -m 5 http://<endpoint.host>:<endpoint.port>/health
 ```
 
-**2. The profile must describe that deployment.** `profiler_otel/profiles/cai_4n.yaml` declares
-the hardware and the coverage the tests assert on. `coverage.hosts` and `coverage.gpus` are
-**exact** matches, not floors — a cluster reporting 32 GPUs against a declared 16 fails the same
-way as one reporting 8. Check `hardware.gpus_per_machine` against what the launcher actually
-uses (`NUM_GPUS_PER_NODE` in the cluster config), not against `nvidia-smi`.
+**2. The profile must describe that deployment.** The profile you point the suite at declares
+the hardware and the coverage the tests assert on. See [Generating the
+profile](#generating-the-profile) below for how to write one and which fields decide whether the
+tests pass.
 
 **3. Passwordless SSH to the head node**, for the driver/CUDA versions in each report's
 Environment table. Without it the report still generates and says why the versions are missing.
@@ -51,6 +47,108 @@ ssh -o BatchMode=yes username@endpoint.host nvidia-smi --version
 Do **not** export `LABEL` to a full model id — a `/` in it is a path separator. The script
 sanitises it and says so, but the derived default (`openai/gpt-oss-120b` → `gpt_oss_120b`) is
 usually what you want, so leave it unset.
+
+---
+
+## Generating the profile
+
+A profile is a YAML file describing one machine and the load to put on it. Nothing about the
+format is specific to this suite, which is why the profiles live in a generically named
+directory. The suite selects one by **filename stem** — `--workload-profile <my_cluster>`, never a
+path — from `profiler_otel/profiles/`, or from any directory passed with `--profile-dir`.
+
+**1. Copy a template — do not edit a profile that is already in use.** The profiles sitting in
+`profiler_otel/profiles/` were each written for one specific cluster and carry that cluster's
+endpoint address, GPU counts and timeouts. Read them as examples, but start your own file from
+[the template](#a-template-profile) below, saved under a name of your own:
+
+```bash
+$EDITOR profiler_otel/profiles/<my_cluster>.yaml   # paste the template, then edit
+```
+
+**2. Change the values to match the deployment being tested** — the shape the cluster is
+actually running, not what the hardware could in principle provide. The table below says which
+fields decide whether the tests pass. Describing the cluster to an assistant and having it fill
+the template in gets most of the way there, but check the coverage numbers by hand.
+
+**3. Set `external: true` under `deployment`.** This tells the suite the stack is already
+serving and stops it trying to bring up its own compose stack.
+
+**4. Point `endpoint` at the serving node** — the proxy for a disaggregated deployment. The
+template's defaults are placeholders, so this must be set when driving a remote cluster.
+
+**5. Leave it in `profiler_otel/profiles/`** and refer to it by stem from then on:
+`--workload-profile <my_cluster>`, or `--profile <my_cluster>` for `launch_sweep.py`.
+
+### A template profile
+
+Placeholders in braces are the values to replace. This one describes a four-node disaggregated
+deployment running two cohorts of one worker each at TP=4 — the fields, not the numbers, are
+what to copy:
+
+```yaml
+description: Four-node disaggregated, 4 GPUs per node
+
+hardware:
+  machines: 4
+  gpus_per_machine: 4
+  sku: rtx-pro-6000-blackwell
+
+serving:
+  mode: disaggregated
+  model: {MODEL}
+  prefill: {nodes: 2, workers: 1, tensor_parallel: 4, spans_nodes: false}
+  decode:  {nodes: 2, workers: 1, tensor_parallel: 4, spans_nodes: false}
+  kv_transfer: nixl
+
+deployment:
+  external: true
+
+endpoint:
+  host: {N1_IP}
+  port: 8192
+
+coverage:
+  hosts: 4
+  gpus: 16
+  communicators: 2
+
+timeouts:
+  workload: 1800
+  metrics_available: 90
+  quiesce: 90
+
+expected_metrics: disagg_moe
+
+benchmark_options:
+  num_prompts: 512
+  max_concurrency: 16
+  random_input_len: 1024
+  random_output_len: 128
+  num_warmups: 4
+  ignore_eos: true
+  disable_tqdm: true
+```
+
+For an **aggregated** deployment, replace the `prefill`/`decode` pair with a single
+`tensor_parallel:` under `serving`, set `coverage.communicators: 1`, and use
+`expected_metrics: aggregated_dense`.
+
+### The profile fields that decide whether tests pass
+
+| Field | Meaning |
+|---|---|
+| `hardware.machines`, `hardware.gpus_per_machine` | the shape the deployment actually uses — match the launcher's `NUM_GPUS_PER_NODE`, not what `nvidia-smi` reports, if the containers are restricted to a subset |
+| `coverage.hosts`, `coverage.gpus` | **exact** match, not a floor. A cluster reporting more GPUs than declared fails the same way as one reporting fewer |
+| `coverage.communicators` | a floor (at least this many). Prefill and decode form separate NCCL communicators, so a disaggregated deployment wants at least 2 — this is what catches one cohort being dead |
+| `serving.mode` | `aggregated` or `disaggregated`; the disaggregated form requires `prefill` and `decode` blocks |
+| `serving.prefill` / `serving.decode` | per-cohort shape. `spans_nodes` records whether one worker's parallel group crosses a machine — `false` when `tp × pp` fits inside a node, in which case no NCCL collective leaves the node and the only inter-machine traffic is the KV transfer, which the profiler does not observe |
+| `endpoint.host` / `endpoint.port` | where requests go — the proxy for a disaggregated deployment. Defaults are localhost, so this must be set when driving a remote cluster (or overridden with `VLLM_HOST`/`VLLM_PORT`) |
+| `timeouts.workload` | how long a run may take before the suite kills it |
+| `benchmark_options` | passed verbatim to `benchmark_serving.py`; any flag that script accepts works here |
+
+`launch_sweep.py` rewrites the swept keys in this profile before each row and restores the file
+afterwards — see [The sweep table](#the-sweep-table) below.
 
 ---
 
@@ -77,7 +175,7 @@ max_concurrency   num_prompts   num_warmups   timeouts.workload
 - `#` comments and blank lines are ignored.
 
 **The profile is restored on exit** — success, failure, or Ctrl-C — so an interrupted sweep
-never leaves a modified `cai_4n.yaml` behind.
+never leaves a modified profile behind.
 
 ---
 
@@ -102,7 +200,7 @@ uv run --with matplotlib  ./launch_sweep.py --graph           # run, then chart
 | `--out-dir DIR` | where reports, logs and the CSV go (default `/tmp/cai_sweep_<timestamp>`) |
 | `--model ID` | write `serving.model` before every row |
 | `--label TAG` | override the derived filename tag |
-| `--profile NAME` | a profile other than `cai_4n` |
+| `--profile NAME` | the profile to sweep, by stem (default `cai_4n`, or `$PROFILE`) |
 | `--report-ext {html,md}` | report format |
 
 **Failures.** By default the sweep stops at the first failed row and prints the `--start N` to
@@ -122,6 +220,59 @@ it once). The script tells you this if the import fails.
 
 ---
 
+## Writing the report to a file
+
+`launch_sweep.py` names and writes a report per row on its own (`--report-ext` picks the
+format). A single `pytest` run writes one only when asked; append any of these:
+
+```
+--report-file=PATH
+--report-format=[html|md]      # default html; a .md path infers md
+--report-html=PATH             # alias for --report-file
+```
+
+For example:
+
+```bash
+GPU_INFO_SSH_USER=<username> \
+PROMETHEUS_HOST=<host> GRAFANA_HOST=<host> GRAFANA_PORT=3000 \
+  uv run pytest -v --workload-profile <my_cluster> -k "not nccl_workload" \
+  --report-file=/tmp/<my_cluster>_disagg.html
+```
+
+`GPU_INFO_SSH_USER` lets the report collect driver, CUDA and kernel-module versions from the
+head node over SSH. Without it the report still generates and states why those rows are missing.
+
+**Copy your key to the head node before the first run.** Passwordless SSH is usually established
+*between cluster nodes*; the machine driving the tests is normally not one of them, so its key is
+not yet trusted anywhere. From the test machine:
+
+```bash
+ssh-copy-id <username>@<endpoint.host>
+```
+
+Then confirm it works non-interactively, which is exactly what the report does:
+
+```bash
+ssh -o BatchMode=yes <username>@<endpoint.host> nvidia-smi --version
+```
+
+Two details make this fail more often than it should:
+
+- **The cluster login is usually not your local one.** `ssh <endpoint.host>` with no user goes as
+  whoever you are locally and is refused; that is what `GPU_INFO_SSH_USER` exists for. A `Host`
+  entry in the test machine's `~/.ssh/config` setting `User <username>` for the cluster addresses
+  removes the need to set the variable at all.
+- **`BatchMode=yes` means no password fallback.** The report never prompts — a missing key fails
+  immediately rather than stalling the run — so a working interactive `ssh` is not proof that the
+  probe will succeed. Test with the flag.
+
+If it is not collected, the report says so with the exact target and SSH's own error, for example
+`not collected -- ssh <endpoint.host>: Permission denied (publickey)`. Everything else in the
+report is unaffected; only the driver rows are missing.
+
+---
+
 ## What you get
 
 Per row, in the output directory:
@@ -138,14 +289,87 @@ Plus, once per sweep:
 | `sweep_results.csv` | one row per run: its configuration, `status`, and every measurement |
 | `*.png` | the charts, with `--graph` |
 
-`sweep_results.csv` is written even when the sweep aborts — the rows that ran are still hours of
-cluster time. Its measurement columns are:
+The filename tag encodes the row that produced it — concurrency, prompts, warm-ups and workload
+timeout — so a report is identifiable without opening it, and two sweeps of the same table
+differ only by `<label>`.
+
+### The HTML report
+
+One file per run, four sections:
+
+1. **Environment** — the profile and its resolved path, hardware shape, serving mode, prefill
+   and decode cohort shapes, KV transfer, declared coverage, endpoint, the Prometheus and
+   Grafana URLs, timeouts, the test runner, and the head node's driver / CUDA / KMD versions.
+   This is what makes a result reproducible six months later.
+2. **Test results** — every test with outcome and duration, colour-coded.
+3. **Details** — per test: the workload configuration actually passed to `benchmark_serving.py`
+   (with the equivalent command-line flag for each option), the benchmark results, the NCCL
+   metric table showing each metric's baseline, current value, delta and status, and the
+   per-host GPU coverage breakdown.
+4. **Failure text**, appended to the section of whichever test failed, so a red row and the
+   numbers explaining it are in one document.
+
+The workload result table looks like this:
+
+```
+  measure                                        value  unit
+  --------------------------------------------  ------  ------
+  requests completed                             8,192
+  benchmark duration (timed requests)      4 mins 54 secs
+  tokens in (prompt)                         8,388,608  tokens
+  tokens out (generated)                     1,048,576  tokens
+  throughput (requests)                          27.78  req/s
+  throughput (prompt+generated)              32,007.69  tok/s
+  throughput (generated only)                 3,556.41  tok/s
+  TTFT mean                                  29,604.82  ms
+  TTFT p99                                   46,727.30  ms
+  TPOT mean                                      30.22  ms
+  TPOT p99                                       42.27  ms
+  container wall time (incl. startup/teardown)  5 mins 55 secs
+```
+
+The NCCL coverage table states, per metric, whether it rose:
+
+```
+  metric                                             baseline             current    delta  status
+  ------------------------------------------------  ------------------  ------------------  -------  ---------
+  nccl_profiler_collective_bytes_total              28,330,700,000,000  29,691,700,000,000   +4.80%  rose
+  nccl_profiler_collective_count_sum                        10,785,700          12,763,800  +18.34%  rose
+  nccl_profiler_rank_latency_microseconds_sum                   absent              absent        -  no series
+  nccl_profiler_transfer_latency_microseconds_sum              4.4126              4.4126   +0.00%  flat
+```
+
+Three statuses, needing three different fixes:
+
+- **rose** — the metric increased; profiler and pipeline both working.
+- **flat** — the series is being scraped but did not move. The exporter is alive; either this
+  metric's instrumentation is not recording or the workload does not exercise it.
+- **no series** — Prometheus has no series under that name. Nothing was ever exported: check
+  the profiler plugin, the OTLP endpoint and the collector.
+
+### `sweep_results.csv`
+
+One row per run — the table view behind every chart, and the file to hand to a spreadsheet.
+Written even when a sweep aborts, since the rows that ran are still hours of cluster time. Its
+measurement columns are:
 
 ```
 requests_completed  benchmark_duration_s  tokens_in  tokens_out
 req_per_s  total_tok_per_s  output_tok_per_s
 ttft_mean_ms  ttft_p99_ms  tpot_mean_ms  tpot_p99_ms  wall_time_s
 ```
+
+```csv
+max_concurrency,num_prompts,num_warmups,timeouts.workload,report,status,requests_completed,benchmark_duration_s,tokens_in,tokens_out,req_per_s,total_tok_per_s,output_tok_per_s,ttft_mean_ms,ttft_p99_ms,tpot_mean_ms,tpot_p99_ms,wall_time_s
+1,64,2,1800,..._c1_p64_w2_t1800.html,passed,64,250.0,65536,8192,0.256,295.0,32.8,587.5,753.0,26.1,29.8,268.0
+16,128,32,1800,..._c16_p128_w32_t1800.html,passed,128,33.7,131072,16384,3.799,4376.6,486.3,659.1,1063.8,27.2,27.9,51.7
+256,2048,512,3000,..._c256_p2048_w512_t3000.html,passed,2048,81.0,2097152,262144,25.15,28971.2,3219.0,5637.0,9505.9,29.5,30.9,110.0
+1024,8192,2048,5400,..._c1024_p8192_w2048_t5400.html,passed,8165,294.0,8360960,1045120,27.78,32007.7,3556.4,29604.8,46727.3,30.2,42.3,355.0
+2048,16384,4096,7200,..._c2048_p16384_w4096_t7200.html,passed,16384,807.0,16777216,2097152,20.31,23393.1,2599.2,90931.9,97889.3,28.9,31.0,946.0
+```
+
+*(Values illustrative — the shape is what matters: throughput rising, plateauing, then falling
+while TTFT climbs.)*
 
 Two clocks are recorded and they mean different things. `benchmark_duration_s` is
 `benchmark_serving.py`'s own timed request phase; `wall_time_s` is the whole containerised run —
@@ -215,8 +439,15 @@ the suite's. That row offered more load than the deployment could serve and requ
 in the queue. It is a legitimate result: that row is past capacity. Use `--keep-going` to record
 it and continue.
 
-**`unknown profile 'profiler_otel/profiles/cai_4n'`** — `--workload-profile` takes a *name*
-(`cai_4n`), not a path.
+The signature to check is TPOT: if TPOT is unchanged from lower-concurrency rows while TTFT and
+end-to-end latency are in the tens of seconds or minutes, requests were queueing rather than
+failing to generate, and the slowest fraction exceeded the client's per-request deadline — the
+deployment saturates below that point. Confirm in the row's `.log` that there are no connection
+resets, 5xx responses or transport errors; those indicate a proxy or KV-transfer fault rather
+than simple queueing, which is a different and more serious problem.
+
+**`unknown profile 'profiler_otel/profiles/<my_cluster>'`** — `--workload-profile` takes a
+*name* (`<my_cluster>`), not a path.
 
 **`vLLM server not ready within timeout`** — the readiness probe is pointed at
 `endpoint.host`/`endpoint.port` from the profile, which defaults to `localhost`. Set those to the
