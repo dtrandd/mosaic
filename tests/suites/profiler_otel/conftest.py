@@ -13,16 +13,14 @@ from urllib.parse import urlparse
 
 import pytest
 import requests
-
-from production_test_framework.vllm import VllmClient, VllmConfig
 from production_test_framework.docker import remove_containers_by_label
-from production_test_framework.workload.prompt_workload import PromptWorkload
+from production_test_framework.vllm import VllmClient, VllmConfig
 from production_test_framework.workload.inferencex_workload import InferencexWorkload
 from production_test_framework.workload.nccl_workload import NcclWorkload
+from production_test_framework.workload.prompt_workload import PromptWorkload
 
 from profiler_otel import profiles
 from profiler_otel.environment import environment_rows
-
 
 # =============================================================================
 # Constants
@@ -369,14 +367,34 @@ def workload_profile(request) -> profiles.Profile:
         pytest.fail(error, pytrace=False)
 
     reporter = request.config.mosaic_reporter
+    # Derived from the profile directly rather than through the URL fixtures: both of those
+    # take `workload_profile`, so requesting them from inside it is a fixture cycle.
     reporter.set_environment(
-        environment_rows(
-            profile,
-            request.getfixturevalue("prometheus_url"),
-            request.getfixturevalue("grafana_url"),
-        )
+        environment_rows(profile, prometheus_url_for(profile), grafana_url_for(profile))
     )
     return profile
+
+
+def prometheus_url_for(profile: profiles.Profile) -> str:
+    """
+    The Prometheus to read NCCL metrics from, for *profile*.
+
+    ``PROMETHEUS_HOST`` wins, so one run can be pointed elsewhere without editing anything;
+    otherwise the profile's ``endpoint`` names it, which is where a site records its own
+    address. The localhost fallback is the single-machine case the default profile describes.
+    """
+    host = os.getenv("PROMETHEUS_HOST") or profile.endpoint.metrics_host
+    port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
+    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
+
+
+def grafana_url_for(profile: profiles.Profile) -> str:
+    """
+    The Grafana the dashboard checks go to, for *profile*, on the same precedence.
+    """
+    host = os.getenv("GRAFANA_HOST") or profile.endpoint.dashboards_host
+    port = os.getenv("GRAFANA_PORT") or profile.endpoint.grafana_port
+    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
 
 
 @pytest.fixture(scope="session")
@@ -384,9 +402,7 @@ def prometheus_url(workload_profile: profiles.Profile) -> str:
     """
     Provide the Prometheus URL.
     """
-    host = os.getenv("PROMETHEUS_HOST") or workload_profile.endpoint.metrics_host
-    port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
-    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
+    return prometheus_url_for(workload_profile)
 
 
 @pytest.fixture(scope="session")
@@ -397,9 +413,7 @@ def grafana_url(workload_profile: profiles.Profile) -> str:
     Overrides the environment-only fixture in the parent conftest, which the dashboards suite
     keeps: that suite runs without a workload profile and so has none to read.
     """
-    host = os.getenv("GRAFANA_HOST") or workload_profile.endpoint.dashboards_host
-    port = os.getenv("GRAFANA_PORT") or workload_profile.endpoint.grafana_port
-    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
+    return grafana_url_for(workload_profile)
 
 
 # =============================================================================
