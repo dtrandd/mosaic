@@ -5,8 +5,12 @@
 Run the profiler OTEL suite once per row of a sweep table, then chart the results.
 
 Reads ``sweep.config``, rewrites the named keys in the profile before each run, and writes that
-row's report to its own file. Aborts on the first run that fails, and restores the profile on
+row's report to its own file. Aborts on the first row that fails, and restores the profile on
 any exit so an interrupted sweep never leaves a modified file behind.
+
+This is a tool in ``tests/tools``; the suite it drives, the profiles it rewrites and the sweep
+table it reads are in ``tests/suites``, and pytest is run from there. Paths are resolved from
+this file's own location, so it can be run from any working directory.
 
 Usage::
 
@@ -45,6 +49,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+#: The suite this script drives. It is not the script's own directory: this is a tool in
+#: `tests/tools`, beside its own sweep table, while the profiles it rewrites and the pytest
+#: project it runs live in `tests/suites`. Resolved from this file's location so the pair can
+#: be checked out anywhere, and verified below rather than left to surface as a puzzling
+#: pytest error three steps later.
+SUITE_DIR = SCRIPT_DIR.parent / "suites"
 
 #: Consecutive failures that end a --keep-going sweep.
 CONSECUTIVE_FAILURE_LIMIT = 2
@@ -622,7 +633,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    profile_path = SCRIPT_DIR / "profiler_otel" / "profiles" / f"{args.profile}.yaml"
+    if not (SUITE_DIR / "pyproject.toml").is_file():
+        sys.exit(
+            f"the suite is not where this script expects it: {SUITE_DIR} has no "
+            "pyproject.toml. This script belongs in tests/tools, beside tests/suites."
+        )
+
+    profile_path = SUITE_DIR / "profiler_otel" / "profiles" / f"{args.profile}.yaml"
     if not profile_path.is_file():
         sys.exit(f"profile not found: {profile_path}")
     if not args.config.is_file():
@@ -733,7 +750,7 @@ def main() -> int:
             with log.open("w") as handle:
                 process = subprocess.run(
                     command,
-                    cwd=SCRIPT_DIR,
+                    cwd=SUITE_DIR,
                     env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,

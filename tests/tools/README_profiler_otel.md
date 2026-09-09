@@ -10,6 +10,12 @@ report to its own file, collects every run's numbers into one CSV, and charts th
 find where a deployment saturates: the concurrency at which throughput stops rising and latency
 starts climbing.
 
+The tool and its `sweep.config` live in `tests/tools`; the suite it drives and the profiles it
+rewrites are in `tests/suites`. It finds them relative to itself, so `./launch_sweep.py` works from
+`tests/tools` (or by full path from anywhere), while a plain `pytest` run is made from
+`tests/suites` as before. Paths below are written from whichever of the two the command belongs
+to.
+
 ---
 
 ## Before you start
@@ -67,15 +73,16 @@ usually what you want, so leave it unset.
 A profile is a YAML file describing one machine and the load to put on it. Nothing about the
 format is specific to this suite, which is why the profiles live in a generically named
 directory. The suite selects one by **filename stem** — `--workload-profile <my_cluster>`, never a
-path — from `profiler_otel/profiles/`, or from any directory passed with `--profile-dir`.
+path — from `tests/suites/profiler_otel/profiles/`, or from any directory passed with
+`--profile-dir`.
 
 **1. Copy a template — do not edit a profile that is already in use.** The profiles sitting in
-`profiler_otel/profiles/` were each written for one specific cluster and carry that cluster's
+`tests/suites/profiler_otel/profiles/` were each written for one specific cluster and carry that cluster's
 endpoint address, GPU counts and timeouts. Read them as examples, but start your own file from
 [the template](#a-template-profile) below, saved under a name of your own:
 
 ```bash
-$EDITOR profiler_otel/profiles/<my_cluster>.yaml   # paste the template, then edit
+$EDITOR ../suites/profiler_otel/profiles/<my_cluster>.yaml   # paste the template, then edit
 ```
 
 **2. Change the values to match the deployment being tested** — the shape the cluster is
@@ -89,7 +96,7 @@ serving and stops it trying to bring up its own compose stack.
 **4. Point `endpoint` at the serving node** — the proxy for a disaggregated deployment. The
 template's defaults are placeholders, so this must be set when driving a remote cluster.
 
-**5. Leave it in `profiler_otel/profiles/`** and refer to it by stem from then on:
+**5. Leave it in `tests/suites/profiler_otel/profiles/`** and refer to it by stem from then on:
 `--workload-profile <my_cluster>`, or `--profile <my_cluster>` for `launch_sweep.py`.
 
 ### A template profile
@@ -199,6 +206,8 @@ never leaves a modified profile behind.
 
 ## Running
 
+From `tests/tools`:
+
 ```bash
 ./launch_sweep.py --list            # the table, and the filename each row will produce
 ./launch_sweep.py --dry-run         # print each row's plan; touch nothing
@@ -250,7 +259,7 @@ format). A single `pytest` run writes one only when asked; append any of these:
 --report-html=PATH             # alias for --report-file
 ```
 
-For example:
+For example, from `tests/suites`:
 
 ```bash
 uv run pytest -v --workload-profile <my_cluster> -k "not nccl_workload" \
