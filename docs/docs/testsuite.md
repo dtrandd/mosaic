@@ -112,10 +112,11 @@ override them.
 |----------|---------|-------------|
 | `VLLM_HOST` | `localhost` | vLLM server host |
 | `VLLM_PORT` | `8080` | vLLM server port |
-| `PROMETHEUS_HOST` | `localhost` | Prometheus host |
+| `PROMETHEUS_HOST` | `endpoint.prometheus_host`, else `endpoint.host`, else `localhost` | Prometheus host |
 | `PROMETHEUS_PORT` | `9090` | Prometheus port |
-| `GRAFANA_HOST` | `localhost` | Grafana host |
-| `GRAFANA_PORT` | `3000` | Grafana port |
+| `GRAFANA_HOST` | `endpoint.grafana_host`, else `endpoint.host`, else `localhost` | Grafana host |
+| `GRAFANA_PORT` | `endpoint.grafana_port`, else `3000` | Grafana port |
+| `GPU_INFO_SSH_USER` | `endpoint.gpu_info_ssh_user` | SSH login for the head-node driver and CUDA versions in a report |
 
 ## Troubleshooting
 

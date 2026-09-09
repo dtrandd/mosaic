@@ -17,15 +17,24 @@ serving:
   model: Qwen/Qwen3-8B
   tensor_parallel: 2
 
+  #mode: disaggregated
+  #model: openai/gpt-oss-120b
+  #prefill: {nodes: 2, workers: 1, tensor_parallel: 4, spans_nodes: false}
+  #decode:  {nodes: 2, workers: 1, tensor_parallel: 4, spans_nodes: false}
+  #kv_transfer: nixl
+
 deployment:
   compose_file: ../../../../deployments/docker-compose-vllm.yml
 
 endpoint:
   host: localhost
   port: 8080
+  prometheus_host: localhost
+  grafana_host: localhost
+  grafana_port: 3000
+  # gpu_info_ssh_user: <login>
 
-# What the profiler must actually report. Declared rather than derived from
-# `hardware` -- see scale_2/scale_3, where they diverge.
+# What the profiler must actually report.
 coverage:
   hosts: 1
   gpus: 2
@@ -37,6 +46,7 @@ timeouts:
   quiesce: 90
 
 expected_metrics: aggregated_dense
+# expected_metrics: disagg_moe   # For mode=disaggregated
 
 # Passed verbatim to InferencexWorkload(benchmark_options=...), which converts
 # keys to benchmark_serving.py flags generically. Any flag that script accepts

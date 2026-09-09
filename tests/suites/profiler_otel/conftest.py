@@ -13,16 +13,14 @@ from urllib.parse import urlparse
 
 import pytest
 import requests
-
-from production_test_framework.vllm import VllmClient, VllmConfig
 from production_test_framework.docker import remove_containers_by_label
-from production_test_framework.workload.prompt_workload import PromptWorkload
+from production_test_framework.vllm import VllmClient, VllmConfig
 from production_test_framework.workload.inferencex_workload import InferencexWorkload
 from production_test_framework.workload.nccl_workload import NcclWorkload
+from production_test_framework.workload.prompt_workload import PromptWorkload
 
 from profiler_otel import profiles
 from profiler_otel.environment import environment_rows
-
 
 # =============================================================================
 # Constants
@@ -49,6 +47,9 @@ VLLM_READY_TIMEOUT = 300  # 5 minutes for model download and loading
 # Default OTEL stack configuration
 DEFAULT_PROMETHEUS_HOST = "localhost"
 DEFAULT_PROMETHEUS_PORT = 9090
+DEFAULT_GRAFANA_HOST = "localhost"
+# No DEFAULT_GRAFANA_PORT here: the profile schema declares Grafana's port and its default,
+# so every profile carries one and there is nothing left for this module to fall back to.
 
 # Scrape cadence of the 'otel-collector' job in deployments/prometheus.yaml. A poll has to
 # be slower than this for two identical readings to mean "no new scrape landed" rather than
@@ -347,8 +348,7 @@ def workload_profile(request) -> profiles.Profile:
     """
     The hardware profile under test, from ``--workload-profile``.
 
-    Session-scoped: one profile describes the deployment the whole run targets. Loading it is
-    also what records the report's environment table
+    Session-scoped: one profile describes the deployment the whole run targets.
     """
     name = request.config.getoption("--workload-profile")
     extra_dirs = request.config.getoption("profile_dirs")
@@ -365,25 +365,49 @@ def workload_profile(request) -> profiles.Profile:
     if error is not None:
         pytest.fail(error, pytrace=False)
 
-    reporter = request.config.mosaic_reporter
-    reporter.set_environment(
-        environment_rows(
-            profile,
-            request.getfixturevalue("prometheus_url"),
-            request.getfixturevalue("grafana_url"),
-        )
-    )
     return profile
 
 
 @pytest.fixture(scope="session")
-def prometheus_url() -> str:
+def prometheus_url(workload_profile: profiles.Profile) -> str:
     """
     Provide the Prometheus URL.
+
+    ``PROMETHEUS_HOST`` wins, so one run can be pointed elsewhere without editing anything;
+    otherwise the profile's ``endpoint`` names it, which is where a site records its own
+    address. The localhost fallback is the single-machine case the default profile describes.
     """
-    host = os.getenv("PROMETHEUS_HOST", DEFAULT_PROMETHEUS_HOST)
+    host = os.getenv("PROMETHEUS_HOST") or workload_profile.endpoint.metrics_host
     port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
-    return f"http://{host}:{port}"
+    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
+
+
+@pytest.fixture(scope="session")
+def grafana_url(workload_profile: profiles.Profile) -> str:
+    """
+    Provide the Grafana URL, from the profile when the environment does not name one.
+
+    Overrides the environment-only fixture in the parent conftest, which the dashboards suite
+    keeps: that suite runs without a workload profile and so has none to read.
+    """
+    host = os.getenv("GRAFANA_HOST") or workload_profile.endpoint.dashboards_host
+    port = os.getenv("GRAFANA_PORT") or workload_profile.endpoint.grafana_port
+    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def report_environment(request, workload_profile, prometheus_url, grafana_url) -> None:
+    """
+    Record the report's environment table, including the addresses this run used.
+
+    Its own fixture rather than part of `workload_profile`, because the two URLs are
+    themselves derived from the profile: asking for them from inside the profile fixture is a
+    dependency cycle, which pytest rejects at setup. Autouse so the table is recorded whatever
+    the selected tests happen to request.
+    """
+    request.config.mosaic_reporter.set_environment(
+        environment_rows(workload_profile, prometheus_url, grafana_url)
+    )
 
 
 # =============================================================================

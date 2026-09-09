@@ -473,14 +473,64 @@ class TestProfileValidation:
         with pytest.raises(profiles.ProfileError, match="deployment"):
             _parse(raw)
 
+    def test_observability_addresses_default_to_the_endpoint_host(self) -> None:
+        """
+        :title: Profiles - Prometheus and Grafana fall back to the endpoint host
+        :suite: profiler_otel
+        :description:
+            A single-cluster deployment runs its LGTM stack on the machine it serves
+            from, so naming the host once is enough. These are the addresses a run
+            would otherwise have to hard-code, which is what carries one site's
+            cluster into another site's sweep.
+        """
+        raw = _profile_file()
+        raw["endpoint"] = {"host": "cluster-head", "port": 8080}
+
+        endpoint = _parse(raw).endpoint
+        assert endpoint.metrics_host == "cluster-head"
+        assert endpoint.dashboards_host == "cluster-head"
+        assert endpoint.gpu_info_ssh_user is None
+        assert endpoint.grafana_port == 3000, "a profile that names no port still carries one"
+
+        raw["endpoint"] = {
+            "host": "cluster-head",
+            "port": 8080,
+            "gpu_info_ssh_user": "operator",
+            "prometheus_host": "metrics-box",
+            "grafana_host": "dashboards-box",
+            "grafana_port": 3001,
+        }
+
+        endpoint = _parse(raw).endpoint
+        assert endpoint.metrics_host == "metrics-box"
+        assert endpoint.dashboards_host == "dashboards-box"
+        assert endpoint.gpu_info_ssh_user == "operator"
+        assert endpoint.grafana_port == 3001
+
+    def test_a_frontend_endpoint_has_no_host_to_fall_back_to(self) -> None:
+        """
+        :title: Profiles - a base_url profile names its own metrics addresses
+        :suite: profiler_otel
+        :description:
+            A disaggregated cluster is reached through one frontend URL, so there is no
+            host for Prometheus and Grafana to default to. Reporting None is what lets a
+            caller say so instead of quietly reading localhost.
+        """
+        profile = profiles.load(
+            "fixture_external_disagg", profiles.profile_dirs([str(FIXTURE_PROFILE_DIR)])
+        )
+        assert profile.endpoint.metrics_host is None
+        assert profile.endpoint.dashboards_host is None
+
     @pytest.mark.parametrize(
         "endpoint",
         [
             {},
             {"host": "localhost", "port": 8080, "base_url": "http://frontend:8000"},
             {"host": "localhost"},
+            {"base_url": "http://frontend:8000", "grafana_port": 70000},
         ],
-        ids=["neither", "both", "host-without-port"],
+        ids=["neither", "both", "host-without-port", "bad-grafana-port"],
     )
     def test_endpoint_needs_exactly_one_form(self, endpoint) -> None:
         """
