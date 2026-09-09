@@ -348,8 +348,7 @@ def workload_profile(request) -> profiles.Profile:
     """
     The hardware profile under test, from ``--workload-profile``.
 
-    Session-scoped: one profile describes the deployment the whole run targets. Loading it is
-    also what records the report's environment table
+    Session-scoped: one profile describes the deployment the whole run targets.
     """
     name = request.config.getoption("--workload-profile")
     extra_dirs = request.config.getoption("profile_dirs")
@@ -366,43 +365,21 @@ def workload_profile(request) -> profiles.Profile:
     if error is not None:
         pytest.fail(error, pytrace=False)
 
-    reporter = request.config.mosaic_reporter
-    # Derived from the profile directly rather than through the URL fixtures: both of those
-    # take `workload_profile`, so requesting them from inside it is a fixture cycle.
-    reporter.set_environment(
-        environment_rows(profile, prometheus_url_for(profile), grafana_url_for(profile))
-    )
     return profile
-
-
-def prometheus_url_for(profile: profiles.Profile) -> str:
-    """
-    The Prometheus to read NCCL metrics from, for *profile*.
-
-    ``PROMETHEUS_HOST`` wins, so one run can be pointed elsewhere without editing anything;
-    otherwise the profile's ``endpoint`` names it, which is where a site records its own
-    address. The localhost fallback is the single-machine case the default profile describes.
-    """
-    host = os.getenv("PROMETHEUS_HOST") or profile.endpoint.metrics_host
-    port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
-    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
-
-
-def grafana_url_for(profile: profiles.Profile) -> str:
-    """
-    The Grafana the dashboard checks go to, for *profile*, on the same precedence.
-    """
-    host = os.getenv("GRAFANA_HOST") or profile.endpoint.dashboards_host
-    port = os.getenv("GRAFANA_PORT") or profile.endpoint.grafana_port
-    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
 
 
 @pytest.fixture(scope="session")
 def prometheus_url(workload_profile: profiles.Profile) -> str:
     """
     Provide the Prometheus URL.
+
+    ``PROMETHEUS_HOST`` wins, so one run can be pointed elsewhere without editing anything;
+    otherwise the profile's ``endpoint`` names it, which is where a site records its own
+    address. The localhost fallback is the single-machine case the default profile describes.
     """
-    return prometheus_url_for(workload_profile)
+    host = os.getenv("PROMETHEUS_HOST") or workload_profile.endpoint.metrics_host
+    port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
+    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
 
 
 @pytest.fixture(scope="session")
@@ -413,7 +390,24 @@ def grafana_url(workload_profile: profiles.Profile) -> str:
     Overrides the environment-only fixture in the parent conftest, which the dashboards suite
     keeps: that suite runs without a workload profile and so has none to read.
     """
-    return grafana_url_for(workload_profile)
+    host = os.getenv("GRAFANA_HOST") or workload_profile.endpoint.dashboards_host
+    port = os.getenv("GRAFANA_PORT") or workload_profile.endpoint.grafana_port
+    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def report_environment(request, workload_profile, prometheus_url, grafana_url) -> None:
+    """
+    Record the report's environment table, including the addresses this run used.
+
+    Its own fixture rather than part of `workload_profile`, because the two URLs are
+    themselves derived from the profile: asking for them from inside the profile fixture is a
+    dependency cycle, which pytest rejects at setup. Autouse so the table is recorded whatever
+    the selected tests happen to request.
+    """
+    request.config.mosaic_reporter.set_environment(
+        environment_rows(workload_profile, prometheus_url, grafana_url)
+    )
 
 
 # =============================================================================
