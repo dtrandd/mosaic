@@ -61,7 +61,7 @@ the deployment configuration it refers to can be moved into another repository t
 | `hardware` | `machines`, `gpus_per_machine`, `sku`. Documentation, and the upper bound `coverage` is validated against |
 | `serving` | `mode` (`aggregated` or `disaggregated`), `model`, and the parallelism. A disaggregated profile adds `prefill` and `decode` blocks |
 | `deployment` | Exactly one of `compose_file` (this suite brings the stack up) or `external: true` (stood up out of band) |
-| `endpoint` | Either `host` and `port`, or `base_url` for a single frontend |
+| `endpoint` | Either `host` and `port`, or `base_url` for a single frontend. Also the site's own `gpu_info_ssh_user`, `prometheus_host`, `grafana_host` and `grafana_port` |
 | `otel_endpoint` | Where profiler telemetry is sent |
 | `coverage` | The `hosts`, `gpus` and `communicators` the profiler must report from |
 | `timeouts` | `workload`, `metrics_available` and `quiesce`, in seconds |
@@ -82,6 +82,32 @@ single frontend sets `base_url` and clears the host and port:
 endpoint:
   base_url: "http://frontend:8000"
 ```
+
+### The cluster's own addresses
+
+`endpoint` also carries where a run reads its results back from: the Prometheus holding the
+profiler's metrics, the Grafana the dashboards checks go to, and the SSH login the report uses
+to collect the head node's driver and CUDA versions.
+
+```yaml title="Naming a site's observability once"
+endpoint:
+  host: 10.0.0.1        # the node serving requests; the head node on a disaggregated cluster
+  port: 8192
+  gpu_info_ssh_user: operator   # a login on that head node
+  # Only needed when the LGTM stack runs somewhere other than `host` -- here, 10.0.0.9:
+  prometheus_host: 10.0.0.9     # default: `host`
+  grafana_host: 10.0.0.9        # default: `host`
+  grafana_port: 3000            # default: 3000
+```
+
+They live in the profile because the alternative is a default inside a launcher, which is right
+on the machine it was written for and silently wrong everywhere else: a sweep pointed at a
+second cluster goes on reading the first one's metrics and reports its numbers as this one's.
+`PROMETHEUS_HOST`, `GRAFANA_HOST`, `GRAFANA_PORT` and `GPU_INFO_SSH_USER` still override the
+profile for a single run, as do `launch_sweep.py`'s matching flags.
+
+A profile reached through `base_url` has no `host` for the two to fall back to, so it names them
+itself; a sweep that cannot resolve them stops before its first row.
 
 ## Coverage
 

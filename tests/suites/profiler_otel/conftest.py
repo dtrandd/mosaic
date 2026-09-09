@@ -49,6 +49,9 @@ VLLM_READY_TIMEOUT = 300  # 5 minutes for model download and loading
 # Default OTEL stack configuration
 DEFAULT_PROMETHEUS_HOST = "localhost"
 DEFAULT_PROMETHEUS_PORT = 9090
+DEFAULT_GRAFANA_HOST = "localhost"
+# No DEFAULT_GRAFANA_PORT here: the profile schema declares Grafana's port and its default,
+# so every profile carries one and there is nothing left for this module to fall back to.
 
 # Scrape cadence of the 'otel-collector' job in deployments/prometheus.yaml. A poll has to
 # be slower than this for two identical readings to mean "no new scrape landed" rather than
@@ -377,13 +380,26 @@ def workload_profile(request) -> profiles.Profile:
 
 
 @pytest.fixture(scope="session")
-def prometheus_url() -> str:
+def prometheus_url(workload_profile: profiles.Profile) -> str:
     """
     Provide the Prometheus URL.
     """
-    host = os.getenv("PROMETHEUS_HOST", DEFAULT_PROMETHEUS_HOST)
+    host = os.getenv("PROMETHEUS_HOST") or workload_profile.endpoint.metrics_host
     port = os.getenv("PROMETHEUS_PORT", str(DEFAULT_PROMETHEUS_PORT))
-    return f"http://{host}:{port}"
+    return f"http://{host or DEFAULT_PROMETHEUS_HOST}:{port}"
+
+
+@pytest.fixture(scope="session")
+def grafana_url(workload_profile: profiles.Profile) -> str:
+    """
+    Provide the Grafana URL, from the profile when the environment does not name one.
+
+    Overrides the environment-only fixture in the parent conftest, which the dashboards suite
+    keeps: that suite runs without a workload profile and so has none to read.
+    """
+    host = os.getenv("GRAFANA_HOST") or workload_profile.endpoint.dashboards_host
+    port = os.getenv("GRAFANA_PORT") or workload_profile.endpoint.grafana_port
+    return f"http://{host or DEFAULT_GRAFANA_HOST}:{port}"
 
 
 # =============================================================================

@@ -203,6 +203,58 @@ def patch_profile(profile: Path, key: str, value: str) -> None:
 
 
 # =============================================================================
+# The run environment
+# =============================================================================
+
+#: Grafana's own default, for a profile that does not name a port. Mirrors the default on
+#: `profiler_otel.profiles.Endpoint.grafana_port`, which is where the value belongs: this
+#: script reads profile keys as text so that it runs under a bare interpreter, and so cannot
+#: import the schema to ask. Keep the two in step.
+DEFAULT_GRAFANA_PORT = "3000"
+
+
+def resolve_run_env(profile: Path, args: argparse.Namespace) -> dict[str, str]:
+    """
+    The addresses a run needs, from the command line or the profile that describes the cluster.
+
+    Nothing here is defaulted to a particular cluster. A hard-coded host is right exactly once,
+    on the machine it was written for, and wrong silently everywhere else: a sweep pointed at a
+    second cluster would go on reading the first one's metrics and report its numbers as this
+    one's. So the command line wins, the profile's ``endpoint`` block answers otherwise, and a
+    run that can name neither stops before it starts.
+
+    ``GPU_INFO_SSH_USER`` is the exception. Without it the report states why the head node's
+    driver and CUDA rows are missing and is otherwise complete, which is not worth ending a
+    sweep over.
+    """
+    endpoint_host = read_profile_value(profile, "endpoint.host")
+    resolved = {
+        "PROMETHEUS_HOST": args.prometheus_host
+        or read_profile_value(profile, "endpoint.prometheus_host")
+        or endpoint_host,
+        "GRAFANA_HOST": args.grafana_host
+        or read_profile_value(profile, "endpoint.grafana_host")
+        or endpoint_host,
+        "GRAFANA_PORT": args.grafana_port
+        or read_profile_value(profile, "endpoint.grafana_port")
+        or DEFAULT_GRAFANA_PORT,
+    }
+    for name, value in resolved.items():
+        if not value:
+            option = "--" + name.lower().replace("_", "-")
+            sys.exit(
+                f"{name} is not set: pass {option}, export {name}, or give profile "
+                f"{profile.stem} an endpoint.{name.lower()} -- or an endpoint.host for the "
+                "Prometheus and Grafana addresses to fall back to"
+            )
+
+    ssh_user = args.gpu_info_ssh_user or read_profile_value(profile, "endpoint.gpu_info_ssh_user")
+    if ssh_user:
+        resolved["GPU_INFO_SSH_USER"] = ssh_user
+    return resolved
+
+
+# =============================================================================
 # Reading results back out of a report
 # =============================================================================
 
@@ -533,6 +585,27 @@ def main() -> int:
     parser.add_argument("--model", default=os.environ.get("MODEL"), help="written to serving.model before every run")
     parser.add_argument("--pytest-k", default=os.environ.get("PYTEST_K", "not nccl_workload"))
     parser.add_argument("--report-ext", default=os.environ.get("REPORT_EXT", "html"), choices=["html", "md"])
+    parser.add_argument(
+        "--prometheus-host",
+        default=os.environ.get("PROMETHEUS_HOST"),
+        help="where NCCL metrics are read from (default: the profile's endpoint.prometheus_host, else endpoint.host)",
+    )
+    parser.add_argument(
+        "--grafana-host",
+        default=os.environ.get("GRAFANA_HOST"),
+        help="Grafana for the dashboards checks (default: the profile's endpoint.grafana_host, else endpoint.host)",
+    )
+    parser.add_argument(
+        "--grafana-port",
+        default=os.environ.get("GRAFANA_PORT"),
+        help=f"Grafana port (default: the profile's endpoint.grafana_port, else {DEFAULT_GRAFANA_PORT})",
+    )
+    parser.add_argument(
+        "--gpu-info-ssh-user",
+        default=os.environ.get("GPU_INFO_SSH_USER"),
+        help="SSH login for the head-node GPU probe (default: the profile's endpoint.gpu_info_ssh_user). "
+        "Without one, reports omit the driver and CUDA versions",
+    )
     parser.add_argument("--start", type=int, default=1, help="resume at this row (1-based)")
     parser.add_argument("--only", type=int, default=None, help="run just this row")
     parser.add_argument("--list", action="store_true", help="show the table and exit")
@@ -591,21 +664,29 @@ def main() -> int:
     if not selected:
         sys.exit("no rows selected")
 
+    # Before the banner, so a run that cannot name its Prometheus says so instead of printing
+    # a plan it will not carry out. --dry-run gets the same check for the same reason.
+    run_env = resolve_run_env(profile_path, args)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Sweep of {len(selected)} of {len(rows)} row(s) from {args.config}")
     print(f"  profile : {profile_path}")
     print(f"  reports : {out_dir}")
     print(f"  model   : {args.model or '<unchanged in profile>'}")
     print(f"  columns : {' '.join(header)}")
+    grafana = f"{run_env['GRAFANA_HOST']}:{run_env['GRAFANA_PORT']}"
+    print(f"  metrics : Prometheus {run_env['PROMETHEUS_HOST']}, Grafana {grafana}")
+    if "GPU_INFO_SSH_USER" in run_env:
+        print(f"  gpu ssh : {run_env['GPU_INFO_SSH_USER']}")
+    else:
+        print("  gpu ssh : none -- reports will omit the head node's driver and CUDA versions")
     if args.dry_run:
         print("  DRY RUN -- no profile edits, no test runs")
     print()
 
+    # Exported so both pytest and the report's head-node GPU probe see them.
     env = dict(os.environ)
-    env.setdefault("GPU_INFO_SSH_USER", "delosadmin")
-    env.setdefault("PROMETHEUS_HOST", "10.128.21.94")
-    env.setdefault("GRAFANA_HOST", "10.128.21.94")
-    env.setdefault("GRAFANA_PORT", "3000")
+    env.update(run_env)
 
     records: list[dict[str, str]] = []
     handle_fd, backup_name = tempfile.mkstemp(prefix=f"{args.profile}.orig.")

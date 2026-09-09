@@ -67,6 +67,8 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Count = Annotated[int, Field(gt=0)]
 #: A timeout in seconds.
 Seconds = Annotated[int, Field(gt=0)]
+#: A TCP port.
+Port = Annotated[int, Field(gt=0, lt=65536)]
 
 
 class _Model(BaseModel):
@@ -150,15 +152,29 @@ class Deployment(_Model):
 
 
 class Endpoint(_Model):
-    """Where the workload sends requests.
+    """Where the workload sends requests, and the addresses that go with it.
 
     Either a host and port, or a single `base_url` - a disaggregated cluster is
     reached through one frontend, which a host and port cannot express.
     """
 
     host: Text | None = None
-    port: Annotated[int, Field(gt=0, lt=65536)] | None = None
+    port: Port | None = None
     base_url: Text | None = None
+    gpu_info_ssh_user: Text | None = None
+    prometheus_host: Text | None = None
+    grafana_host: Text | None = None
+    grafana_port: Port = 3000
+
+    @property
+    def metrics_host(self) -> str | None:
+        """The Prometheus to read NCCL metrics from, or None if the profile names none."""
+        return self.prometheus_host or self.host
+
+    @property
+    def dashboards_host(self) -> str | None:
+        """The Grafana the dashboards suite checks, or None if the profile names none."""
+        return self.grafana_host or self.host
 
     @model_validator(mode="after")
     def _exactly_one_form(self) -> Endpoint:
