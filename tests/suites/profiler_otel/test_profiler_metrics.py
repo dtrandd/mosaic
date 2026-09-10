@@ -6,12 +6,16 @@ Tests for vLLM inference with NCCL Profiler OTEL.
 These tests validate that the NCCL profiler is exporting telemetry correctly.
 """
 
+import subprocess
 import time
 
 import pytest
 import requests
+from production_test_framework.docker import docker_argv
 from production_test_framework.vllm import InferenceResult
-from production_test_framework.workload.inferencex_workload import InferencexBenchmarkResult
+from production_test_framework.workload.inferencex_workload import (
+    InferencexBenchmarkResult,
+)
 from production_test_framework.workload.workload import WorkloadStatus
 
 from profiler_otel.conftest import (
@@ -21,6 +25,7 @@ from profiler_otel.conftest import (
     metric_total,
     metric_totals_by,
     metric_totals_by_gpu,
+    query_prometheus,
     wait_for_metrics_quiesced,
 )
 from profiler_otel.environment import benchmark_option_rows
@@ -128,6 +133,113 @@ def _run_workload(reporter, workload, timeout):
         f"{workload_result.status}. Result: {workload_result.result!r}"
     )
     return workload_result
+
+
+def _report_running_containers(reporter, timeout: float = 30.0) -> None:
+    """
+    ``docker ps`` as the report saw it, before this test takes its baseline.
+
+    Recorded because a container is what a ``hostname`` label is: the metric series carry a
+    container's id, so a second instrumented container on one machine is indistinguishable
+    from a second machine until something lists what is actually running. Ids are left at
+    docker's default 12 characters, which is exactly the form the labels take, so the two
+    can be read against each other.
+
+    Best effort. A missing or unreachable docker costs the report a table, not the test.
+    """
+    columns = "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"
+    try:
+        completed = subprocess.run(
+            docker_argv("ps", "--format", columns),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        reporter.note(f"docker ps: not collected -- {exc}")
+        return
+
+    if completed.returncode != 0:
+        reporter.note(f"docker ps: not collected -- exit {completed.returncode}: {completed.stderr.strip()}")
+        return
+
+    rows = [line.split("\t") for line in completed.stdout.splitlines() if line.strip()]
+    reporter.table(
+        ["container", "name", "image", "status"],
+        rows or [["(none running)", "", "", ""]],
+        title="docker ps before the baseline -- container ids are the hostname labels",
+    )
+
+
+def _report_coverage_diagnostics(reporter, prometheus_url, probe, baseline_by_gpu, active) -> None:
+    """
+    Everything needed to tell a wrongly-described cluster from a duplicated exporter.
+
+    Printed only when coverage does not match, because it is verbose. The summary tables count
+    ``(hostname, gpu_pci_bus_id)`` pairs, and ``hostname`` is a container's id unless one was
+    set explicitly -- so a second instrumented container on one machine shows up as another
+    host with its own copy of the machine's GPUs, and the counts exceed what the hardware has.
+    That is invisible above and obvious below: the same PCI address under two hostnames.
+    """
+    current = metric_totals_by_gpu(prometheus_url, probe)
+    keys = sorted(set(current) | set(baseline_by_gpu))
+
+    rows = []
+    for key in keys:
+        host, gpu = key
+        before, after = baseline_by_gpu.get(key), current.get(key)
+        if key in active:
+            status = MetricStatus.ROSE
+        elif after is None:
+            status = MetricStatus.NO_SERIES
+        else:
+            status = MetricStatus.FLAT
+        # format_number and format_delta already render a missing value as "-": a series that
+        # only appeared during the workload has no baseline, and that is worth seeing.
+        rows.append([host, gpu, format_number(before), format_number(after), format_delta(before, after), status])
+    reporter.table(
+        ["host", "GPU", "baseline", "current", "delta", "status"],
+        rows or [["(none)", "", "", "", "", MetricStatus.NO_SERIES]],
+        title=f"Every series of {probe}: baseline against now",
+        left={2, 3, 4},
+        status_column=5,
+    )
+
+    hosts_by_gpu: dict[str, set[str]] = {}
+    for host, gpu in keys:
+        hosts_by_gpu.setdefault(gpu, set()).add(host)
+    shared = {gpu: hosts for gpu, hosts in hosts_by_gpu.items() if len(hosts) > 1}
+    if shared:
+        reporter.table(
+            ["GPU", "hostnames reporting it"],
+            [[gpu, ", ".join(sorted(hosts))] for gpu, hosts in sorted(shared.items())],
+            title="Same PCI address under more than one hostname -- one machine, two exporters",
+        )
+    else:
+        reporter.note(
+            "No PCI address appears under more than one hostname, so the extra participants "
+            "are separate machines or GPUs the profile does not describe."
+        )
+
+    # Which communicator each exporter's GPUs sit in. A second deployment brings its own, so
+    # this separates "one cluster, more GPUs than declared" from "two clusters in one series".
+    series = query_prometheus(
+        prometheus_url, f"sum by (hostname, gpu_pci_bus_id, communicator) ({probe})"
+    )
+    breakdown = sorted(
+        (
+            item.get("metric", {}).get("hostname", "?"),
+            item.get("metric", {}).get("gpu_pci_bus_id", "?"),
+            item.get("metric", {}).get("communicator", "?"),
+        )
+        for item in series
+    )
+    reporter.table(
+        ["host", "GPU", "communicator"],
+        [list(row) for row in breakdown] or [["(none)", "", ""]],
+        title="Label combinations behind the counts",
+    )
 
 
 def _poll_until_increased(prometheus_url, metric_names, baseline, result, timeout):
@@ -326,6 +438,9 @@ class TestNCCLProfilerTelemetry:
         timeouts = workload_profile.timeouts
         metrics = expected_nccl_profiler_metrics(inferencex_workload, workload_profile)
 
+        # Before anything is measured: what is running decides which hostnames can appear.
+        _report_running_containers(reporter)
+
         # One metric is enough to establish who did work, and keeps the query cheap at high
         # GPU counts. A counter is the most reliable of the family.
         probe = "nccl_profiler_collective_bytes_total"
@@ -406,6 +521,7 @@ class TestNCCLProfilerTelemetry:
             )
 
         if problems:
+            _report_coverage_diagnostics(reporter, prometheus_url, probe, baseline_by_gpu, gpus)
             # A GPU present but flat is a different fault from one missing entirely, and
             # they need different fixes, so name which one this is.
             idle = sorted(set(metric_totals_by_gpu(prometheus_url, probe)) - gpus)
