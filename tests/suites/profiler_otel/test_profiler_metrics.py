@@ -11,8 +11,6 @@ import time
 import pytest
 import requests
 from production_test_framework.reporting import (
-    CoverageStatus,
-    MetricStatus,
     format_delta,
     format_value,
     report_workload_result,
@@ -28,6 +26,7 @@ from profiler_otel.conftest import (
     metric_totals_by_gpu,
     wait_for_metrics_quiesced,
 )
+from profiler_otel.status import STATUS_CLASSES, CoverageStatus, MetricStatus
 
 # =============================================================================
 # NCCL Profiler Telemetry Tests
@@ -226,6 +225,7 @@ class TestNCCLProfilerTelemetry:
             ),
             left={5},
             status_column=5,
+            status_classes=STATUS_CLASSES,
         )
 
         if missing_metrics:
@@ -235,6 +235,7 @@ class TestNCCLProfilerTelemetry:
                 title=f"Did not increase ({len(missing_metrics)} of {len(nccl_profiler_metrics)})",
                 left={1, 2},
                 status_column=1,
+                status_classes=STATUS_CLASSES,
             )
 
         assert not missing_metrics, (
@@ -311,6 +312,7 @@ class TestNCCLProfilerTelemetry:
             ),
             left={3},
             status_column=3,
+            status_classes=STATUS_CLASSES,
         )
 
         reporter.table(
@@ -346,6 +348,7 @@ class TestNCCLProfilerTelemetry:
                     title="Reporting a series but flat across this workload",
                     left={2},
                     status_column=2,
+                    status_classes=STATUS_CLASSES,
                 )
 
         assert not problems, (
@@ -408,6 +411,7 @@ class TestNCCLProfilerTelemetry:
             ),
             left={4},
             status_column=4,
+            status_classes=STATUS_CLASSES,
         )
         if leaky_hosts:
             reporter.table(
