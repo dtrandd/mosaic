@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-pytest_plugins = ["production_test_framework.reporting.pytest_plugin"]
+pytest_plugins = ["production_test_framework.reporting.report_plugin"]
 
 
 DEFAULT_PROFILE = "default"
