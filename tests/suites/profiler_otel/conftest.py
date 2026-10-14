@@ -6,6 +6,7 @@ NCCL Profiler OTEL test fixtures.
 This conftest provides fixtures and constants specific to NCCL profiler OTEL testing.
 """
 
+import logging
 import math
 import os
 import time
@@ -21,6 +22,8 @@ from production_test_framework.workload.prompt_workload import PromptWorkload
 
 from profiler_otel import profiles
 from profiler_otel.environment import environment_rows
+
+_log = logging.getLogger(__name__)
 
 # =============================================================================
 # Constants
@@ -340,7 +343,7 @@ def sweep_orphaned_workload_containers():
 
     removed = remove_containers_by_label()
     if removed:
-        print(f"\n  Removed {len(removed)} orphaned workload container(s): {removed}")
+        _log.info(f"Removed {len(removed)} orphaned workload container(s): {removed}")
 
 
 @pytest.fixture(scope="session")
@@ -500,14 +503,14 @@ def profiler_pipeline_warm(
     Re-running the same workload against an already-warm stack passed, which is what identified
     this.
     """
-    print("\n  Warming up the server and the telemetry pipeline before measuring...")
+    _log.info("Warming up the server and the telemetry pipeline before measuring...")
     started = time.monotonic()
     result = vllm_client.complete(WARMUP_PROMPT)
     if not result.success:
         pytest.fail(
             f"warm-up inference failed, so nothing measured after it can be trusted: {result.error}"
         )
-    print(f"    Warm-up inference took {time.monotonic() - started:.1f}s")
+    _log.info(f"Warm-up inference took {time.monotonic() - started:.1f}s")
 
     # Waiting for the inference to return is not enough: export is chunky, and a whole
     # workload's worth of bytes can land in a single scrape well after the request finished.
@@ -516,13 +519,13 @@ def profiler_pipeline_warm(
     while True:
         total = metric_total(prometheus_url, WARMUP_PROBE_METRIC)
         if total:
-            print(f"    Telemetry pipeline live: {WARMUP_PROBE_METRIC}={total:.6g}")
+            _log.info(f"Telemetry pipeline live: {WARMUP_PROBE_METRIC}={total:.6g}")
             return
         if time.monotonic() >= deadline:
             # Not fatal. The tests assert on an increase and will fail on their own terms with
             # better diagnostics than this fixture could produce.
-            print(
-                f"    WARNING: {WARMUP_PROBE_METRIC} still absent or zero "
+            _log.warning(
+                f"{WARMUP_PROBE_METRIC} still absent or zero "
                 f"{workload_profile.timeouts.metrics_available}s after the warm-up inference"
             )
             return

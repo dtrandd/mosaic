@@ -6,6 +6,7 @@ Tests for vLLM inference with NCCL Profiler OTEL.
 These tests validate that the NCCL profiler is exporting telemetry correctly.
 """
 
+import logging
 import time
 
 import pytest
@@ -27,6 +28,8 @@ from profiler_otel.conftest import (
     wait_for_metrics_quiesced,
 )
 from profiler_otel.status import STATUS_CLASSES, CoverageStatus, MetricStatus
+
+_log = logging.getLogger(__name__)
 
 # =============================================================================
 # NCCL Profiler Telemetry Tests
@@ -109,7 +112,7 @@ class TestNCCLProfilerTelemetry:
             try:
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
-                    print(f"\n  Prometheus endpoint accessible at {prometheus_url}")
+                    _log.info(f"Prometheus endpoint accessible at {prometheus_url}")
                     return
             except requests.exceptions.RequestException:
                 pass
@@ -133,7 +136,7 @@ class TestNCCLProfilerTelemetry:
             try:
                 response = requests.get(url, timeout=10)
                 if response.status_code == 200:
-                    print(f"\n  Grafana accessible at {grafana_url}")
+                    _log.info(f"Grafana accessible at {grafana_url}")
                     return
             except requests.exceptions.RequestException:
                 pass
