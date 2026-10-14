@@ -46,10 +46,13 @@ def _settle_and_snapshot(reporter, prometheus_url, metric_names, quiesce_timeout
     reporter.note("Waiting for NCCL metric totals to settle before taking a baseline...")
     baseline, settled = wait_for_metrics_quiesced(prometheus_url, metric_names, timeout=quiesce_timeout)
     if not settled:
-        reporter.note(
-            f"WARNING: totals still moving after {quiesce_timeout}s; baseline may "
-            "include samples from a previous workload"
+        message = (
+            f"totals still moving after {quiesce_timeout}s; baseline may include samples from a previous workload"
         )
+        _log.warning(message)
+        # note() prints to the console when there is no report file, which would repeat the warning
+        if reporter.writes_file:
+            reporter.note(f"WARNING: {message}")
     return baseline
 
 
