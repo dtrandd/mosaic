@@ -56,7 +56,9 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     """Register custom markers to avoid warnings."""
     config.addinivalue_line("markers", "profiler_otel: marks tests as NCCL profiler OTEL tests")
-    config.addinivalue_line("markers", "dashboards: marks tests as Grafana dashboards integration tests")
+    config.addinivalue_line(
+        "markers", "dashboards: marks tests as Grafana dashboards integration tests"
+    )
 
 
 @pytest.fixture(scope="session")

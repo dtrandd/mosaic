@@ -36,9 +36,15 @@ def environment_rows(
     """
     spec = profile.model_dump(mode="json")
 
-    override = [f"{key}={os.environ[key]}" for key in ("VLLM_HOST", "VLLM_PORT") if key in os.environ]
-    endpoint = endpoint_address(spec) + (f"  (overridden: {', '.join(override)})" if override else "")
-    deployment = "external" if profile.is_external else f"compose: {display_path(profile.compose_file)}"
+    override = [
+        f"{key}={os.environ[key]}" for key in ("VLLM_HOST", "VLLM_PORT") if key in os.environ
+    ]
+    endpoint = endpoint_address(spec) + (
+        f"  (overridden: {', '.join(override)})" if override else ""
+    )
+    deployment = (
+        "external" if profile.is_external else f"compose: {display_path(profile.compose_file)}"
+    )
 
     rows = profile_rows(spec, prometheus_url, grafana_url, endpoint=endpoint, deployment=deployment)
     rows.append(["InferenceX mode", inferencex_mode.value])

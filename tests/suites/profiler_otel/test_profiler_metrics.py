@@ -44,11 +44,11 @@ def _settle_and_snapshot(reporter, prometheus_url, metric_names, quiesce_timeout
     Wait for the metric totals to stop moving, then return them as a baseline.
     """
     reporter.note("Waiting for NCCL metric totals to settle before taking a baseline...")
-    baseline, settled = wait_for_metrics_quiesced(prometheus_url, metric_names, timeout=quiesce_timeout)
+    baseline, settled = wait_for_metrics_quiesced(
+        prometheus_url, metric_names, timeout=quiesce_timeout
+    )
     if not settled:
-        message = (
-            f"totals still moving after {quiesce_timeout}s; baseline may include samples from a previous workload"
-        )
+        message = f"totals still moving after {quiesce_timeout}s; baseline may include samples from a previous workload"
         _log.warning(message)
         # note() prints to the console when there is no report file, which would repeat the warning
         if reporter.writes_file:
@@ -177,7 +177,9 @@ class TestNCCLProfilerTelemetry:
         timeouts = workload_profile.timeouts
         nccl_profiler_metrics = expected_nccl_profiler_metrics(workload, workload_profile)
 
-        baseline = _settle_and_snapshot(reporter, prometheus_url, nccl_profiler_metrics, timeouts.quiesce)
+        baseline = _settle_and_snapshot(
+            reporter, prometheus_url, nccl_profiler_metrics, timeouts.quiesce
+        )
         reporter.table(
             ["metric", "total"],
             [[name, format_value(value)] for name, value in baseline.items()],
@@ -283,16 +285,26 @@ class TestNCCLProfilerTelemetry:
         def active_participants():
             """GPUs, hosts and communicators whose totals rose during this workload."""
             by_gpu = metric_totals_by_gpu(prometheus_url, probe)
-            gpus = {key for key, total in by_gpu.items() if metric_increased(baseline_by_gpu.get(key), total)}
+            gpus = {
+                key
+                for key, total in by_gpu.items()
+                if metric_increased(baseline_by_gpu.get(key), total)
+            }
             by_comm = metric_totals_by(prometheus_url, probe, label="communicator")
-            comms = {name for name, total in by_comm.items() if metric_increased(baseline_by_comm.get(name), total)}
+            comms = {
+                name
+                for name, total in by_comm.items()
+                if metric_increased(baseline_by_comm.get(name), total)
+            }
             return gpus, {host for host, _ in gpus}, comms
 
         deadline = time.monotonic() + timeouts.metrics_available
         while True:
             gpus, hosts, comms = active_participants()
             enough = (
-                len(hosts) >= coverage.hosts and len(gpus) >= coverage.gpus and len(comms) >= coverage.communicators
+                len(hosts) >= coverage.hosts
+                and len(gpus) >= coverage.gpus
+                and len(comms) >= coverage.communicators
             )
             if enough or time.monotonic() >= deadline:
                 break
@@ -305,7 +317,12 @@ class TestNCCLProfilerTelemetry:
         reporter.table(
             ["participant", "seen", "expected", "status"],
             [
-                [label, str(len(seen)), str(expected), CoverageStatus.for_counts(len(seen), expected)]
+                [
+                    label,
+                    str(len(seen)),
+                    str(expected),
+                    CoverageStatus.for_counts(len(seen), expected),
+                ]
                 for label, seen, expected in (
                     ("hosts", hosts, coverage.hosts),
                     ("GPUs", gpus, coverage.gpus),
@@ -323,7 +340,10 @@ class TestNCCLProfilerTelemetry:
 
         reporter.table(
             ["host", "GPUs", "PCI addresses"],
-            [[host, str(len(host_gpus)), ", ".join(host_gpus)] for host, host_gpus in sorted(gpus_by_host.items())]
+            [
+                [host, str(len(host_gpus)), ", ".join(host_gpus)]
+                for host, host_gpus in sorted(gpus_by_host.items())
+            ]
             or [["(none)", "0", ""]],
             title="GPUs that did work, per host",
             left={2},
@@ -332,9 +352,13 @@ class TestNCCLProfilerTelemetry:
 
         problems: list[str] = []
         if len(hosts) != coverage.hosts:
-            problems.append(f"expected {coverage.hosts} host(s) doing work, saw {len(hosts)}: {sorted(hosts)}")
+            problems.append(
+                f"expected {coverage.hosts} host(s) doing work, saw {len(hosts)}: {sorted(hosts)}"
+            )
         if len(gpus) != coverage.gpus:
-            problems.append(f"expected {coverage.gpus} GPU(s) doing work, saw {len(gpus)}, per host: {gpus_by_host}")
+            problems.append(
+                f"expected {coverage.gpus} GPU(s) doing work, saw {len(gpus)}, per host: {gpus_by_host}"
+            )
         # Prefill and decode pools form separate communicators; a global total rises even when
         # only one of them is alive.
         if len(comms) < coverage.communicators:
@@ -362,7 +386,9 @@ class TestNCCLProfilerTelemetry:
             f"({probe}):\n  - " + "\n  - ".join(problems)
         )
 
-    def test_metrics_do_not_increase_without_a_workload(self, workload_profile, prometheus_url: str, reporter):
+    def test_metrics_do_not_increase_without_a_workload(
+        self, workload_profile, prometheus_url: str, reporter
+    ):
         """
         :title: Telemetry - NCCL metrics do not increase while idle
         :suite: profiler_otel
@@ -379,9 +405,13 @@ class TestNCCLProfilerTelemetry:
 
         observation_period = timeouts.metrics_available
 
-        baseline, settled = wait_for_metrics_quiesced(prometheus_url, metrics, timeout=quiesce_timeout)
+        baseline, settled = wait_for_metrics_quiesced(
+            prometheus_url, metrics, timeout=quiesce_timeout
+        )
         if not settled:
-            pytest.fail(f"NCCL metric totals still moving after {quiesce_timeout}s; cannot establish an idle baseline")
+            pytest.fail(
+                f"NCCL metric totals still moving after {quiesce_timeout}s; cannot establish an idle baseline"
+            )
         baseline_by_host = {m: metric_totals_by(prometheus_url, m) for m in metrics}
 
         time.sleep(observation_period)

@@ -59,6 +59,7 @@ def _disaggregated_profile_file() -> dict[str, Any]:
 def _parse(raw: dict[str, Any]) -> profiles.Profile:
     return profiles.parse_profile("unit-test", raw, FAKE_PROFILE_PATH)
 
+
 # Synthetic profiles exercising shapes this repository ships support for but no longer ships
 # a profile for: externally deployed clusters, a frontend base_url, multi-host coverage and
 # more than one NCCL communicator. Those live in the environments that run them, so without
@@ -200,6 +201,7 @@ class TestProfiles:
                 f"profile {name!r} ({path}) names metric set {key!r}, which conftest does "
                 f"not define; known: {sorted(METRIC_SETS_BY_NAME)}"
             )
+
 
 @pytest.mark.profiler_otel
 class TestProfilesCli:
@@ -418,7 +420,9 @@ class TestProfileValidation:
         profile.inferencex_options(profiles.InferencexMode.AGENTIC)["model"] = "other/model"
 
         assert "model" not in profile.benchmark_options, "benchmark_options was modified"
-        assert "model" not in profiles.DEFAULT_AGENTIC_OPTIONS, "DEFAULT_AGENTIC_OPTIONS was modified"
+        assert "model" not in profiles.DEFAULT_AGENTIC_OPTIONS, (
+            "DEFAULT_AGENTIC_OPTIONS was modified"
+        )
 
     def test_a_disaggregated_profile_round_trips(self) -> None:
         """

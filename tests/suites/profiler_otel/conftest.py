@@ -137,9 +137,7 @@ NCCL_PROFILER_METRICS_EXPECTED_NCCL_WORKLOAD = [
 NCCL_PROFILER_METRICS_EXPECTED_AGGREGATED_MOE = list(
     NCCL_PROFILER_METRICS_EXPECTED_INFERENCEX_WORKLOAD
 )
-NCCL_PROFILER_METRICS_EXPECTED_DISAGG_MOE = list(
-    NCCL_PROFILER_METRICS_EXPECTED_INFERENCEX_WORKLOAD
-)
+NCCL_PROFILER_METRICS_EXPECTED_DISAGG_MOE = list(NCCL_PROFILER_METRICS_EXPECTED_INFERENCEX_WORKLOAD)
 
 #: Keyed by a profile's ``expected_metrics`` field.
 METRIC_SETS_BY_NAME = {
@@ -149,9 +147,7 @@ METRIC_SETS_BY_NAME = {
 }
 
 
-def expected_nccl_profiler_metrics(
-    workload, profile: profiles.Profile | None = None
-) -> list[str]:
+def expected_nccl_profiler_metrics(workload, profile: profiles.Profile | None = None) -> list[str]:
     """
     Return the NCCL profiler metric names we assert on for this workload.
 
@@ -211,7 +207,7 @@ def metric_total(prometheus_url: str, metric_name: str) -> float | None:
         return None
     try:
         value = float(series[0]["value"][1])
-    except (KeyError, IndexError, ValueError):
+    except KeyError, IndexError, ValueError:
         return None
     # Prometheus legitimately returns NaN for some series. float() accepts it, and every
     # comparison against NaN is False, so a NaN total would silently read as "did not
@@ -240,7 +236,7 @@ def metric_totals_by(
             continue
         try:
             value = float(item["value"][1])
-        except (KeyError, IndexError, ValueError):
+        except KeyError, IndexError, ValueError:
             continue
         # See metric_total: a NaN would read as a flat host rather than an absent one.
         if math.isfinite(value):
@@ -264,7 +260,7 @@ def metric_totals_by_gpu(prometheus_url: str, metric_name: str) -> dict[tuple[st
             continue
         try:
             value = float(item["value"][1])
-        except (KeyError, IndexError, ValueError):
+        except KeyError, IndexError, ValueError:
             continue
         if math.isfinite(value):
             totals[(host, gpu)] = value
@@ -407,7 +403,9 @@ def grafana_url(workload_profile: profiles.Profile) -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def report_environment(request, workload_profile, inferencex_mode, prometheus_url, grafana_url) -> None:
+def report_environment(
+    request, workload_profile, inferencex_mode, prometheus_url, grafana_url
+) -> None:
     """
     Record the report's environment table, including the addresses this run used.
 
@@ -417,7 +415,9 @@ def report_environment(request, workload_profile, inferencex_mode, prometheus_ur
     the selected tests happen to request.
     """
     request.config.mosaic_reporter.set_environment(
-        environment_rows(request.config, workload_profile, inferencex_mode, prometheus_url, grafana_url)
+        environment_rows(
+            request.config, workload_profile, inferencex_mode, prometheus_url, grafana_url
+        )
     )
 
 
