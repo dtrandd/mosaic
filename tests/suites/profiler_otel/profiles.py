@@ -57,6 +57,30 @@ class MetricSet(StrEnum):
     DISAGG_MOE = "disagg_moe"
 
 
+class InferencexMode(StrEnum):
+    """The shape of load the InferenceX workload drives.
+
+    `fixed` runs a profile's `benchmark_options` as written. `agentic` layers its
+    `agentic_options` over them, or `DEFAULT_AGENTIC_OPTIONS` when it declares none.
+    """
+
+    FIXED = "fixed"
+    AGENTIC = "agentic"
+
+
+#: Agentic load for a profile that declares no `agentic_options` of its own: long prompts
+#: sharing a prefix, as an agent re-sends its growing context, and short answers, as a tool
+#: call is. Small enough to finish well inside the default profile's workload timeout.
+DEFAULT_AGENTIC_OPTIONS: dict[str, Any] = {
+    "num_prompts": 32,
+    "max_concurrency": 8,
+    "random_input_len": 8192,
+    "random_output_len": 64,
+    "random_prefix_len": 1024,
+    "random_range_ratio": 0.5,
+}
+
+
 class ProfileError(Exception):
     """Raised when a profile is missing or fails validation. Message carries the field path."""
 
@@ -232,6 +256,7 @@ class Profile(_Model):
     timeouts: Timeouts
     expected_metrics: MetricSet
     benchmark_options: dict[str, Any]
+    agentic_options: dict[str, Any] | None = None
     otel_endpoint: Text | None = None
     compose_file: Path | None = None
 
@@ -239,6 +264,20 @@ class Profile(_Model):
     def is_external(self) -> bool:
         """True when the deployment is stood up out of band, so setup does not apply."""
         return self.deployment.external
+
+    def inferencex_options(self, mode: InferencexMode) -> dict[str, Any]:
+        """The benchmark options for *mode*, as a fresh dict the caller may extend.
+
+        Agentic options are layered over `benchmark_options` rather than replacing them, so
+        flags that do not describe the load's shape - warmups, `ignore_eos` - apply to both.
+        """
+        options = dict(self.benchmark_options)
+        if mode is InferencexMode.AGENTIC:
+            if self.agentic_options is None:
+                options.update(DEFAULT_AGENTIC_OPTIONS)
+            else:
+                options.update(self.agentic_options)
+        return options
 
 
 class _ProfileSpec(_Model):
@@ -253,6 +292,7 @@ class _ProfileSpec(_Model):
     timeouts: Timeouts
     expected_metrics: MetricSet
     benchmark_options: dict[str, Any]
+    agentic_options: dict[str, Any] | None = None
     otel_endpoint: Text | None = None
 
     @model_validator(mode="after")

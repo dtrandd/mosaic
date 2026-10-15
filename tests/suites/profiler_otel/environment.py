@@ -24,7 +24,13 @@ from profiler_otel import profiles
 __all__ = ["environment_rows"]
 
 
-def environment_rows(config, profile: profiles.Profile, prometheus_url: str, grafana_url: str) -> list[list[str]]:
+def environment_rows(
+    config,
+    profile: profiles.Profile,
+    inferencex_mode: profiles.InferencexMode,
+    prometheus_url: str,
+    grafana_url: str,
+) -> list[list[str]]:
     """
     What this run was pointed at, as (property, value) rows for the report's top table.
     """
@@ -35,6 +41,7 @@ def environment_rows(config, profile: profiles.Profile, prometheus_url: str, gra
     deployment = "external" if profile.is_external else f"compose: {display_path(profile.compose_file)}"
 
     rows = profile_rows(spec, prometheus_url, grafana_url, endpoint=endpoint, deployment=deployment)
+    rows.append(["InferenceX mode", inferencex_mode.value])
     # The rootdir's checkout is this suite's, which is the code under test even when another
     # repository's Makefile cloned it and drove the run.
     return rows + run_rows(config) + gpu_rows(profile_host(spec))

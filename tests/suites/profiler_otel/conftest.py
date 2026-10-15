@@ -372,6 +372,14 @@ def workload_profile(request) -> profiles.Profile:
 
 
 @pytest.fixture(scope="session")
+def inferencex_mode(request) -> profiles.InferencexMode:
+    """
+    The load shape for the InferenceX workload, from ``--inferencex-mode``.
+    """
+    return profiles.InferencexMode(request.config.getoption("--inferencex-mode"))
+
+
+@pytest.fixture(scope="session")
 def prometheus_url(workload_profile: profiles.Profile) -> str:
     """
     Provide the Prometheus URL.
@@ -399,7 +407,7 @@ def grafana_url(workload_profile: profiles.Profile) -> str:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def report_environment(request, workload_profile, prometheus_url, grafana_url) -> None:
+def report_environment(request, workload_profile, inferencex_mode, prometheus_url, grafana_url) -> None:
     """
     Record the report's environment table, including the addresses this run used.
 
@@ -409,7 +417,7 @@ def report_environment(request, workload_profile, prometheus_url, grafana_url) -
     the selected tests happen to request.
     """
     request.config.mosaic_reporter.set_environment(
-        environment_rows(request.config, workload_profile, prometheus_url, grafana_url)
+        environment_rows(request.config, workload_profile, inferencex_mode, prometheus_url, grafana_url)
     )
 
 
@@ -548,16 +556,20 @@ def prompt_workload(vllm_config: VllmConfig, profiler_pipeline_warm):
 
 
 @pytest.fixture(scope="session")
-def inferencex_workload(workload_profile: profiles.Profile, profiler_pipeline_warm):
+def inferencex_workload(
+    workload_profile: profiles.Profile,
+    inferencex_mode: profiles.InferencexMode,
+    profiler_pipeline_warm,
+):
     """
-    Provide an InferenceX workload configured by the profile.
+    Provide an InferenceX workload configured by the profile and ``--inferencex-mode``.
 
-    ``benchmark_options`` is handed to the workload verbatim: it converts keys to
+    The profile's options for the mode are handed to the workload verbatim: it converts keys to
     benchmark_serving.py flags generically, so a profile can set any flag that script accepts
     without a change here. The endpoint is layered underneath, where ``None`` means "omit the
     flag" -- which is how a base_url profile drops the default host/port.
     """
-    options = dict(workload_profile.benchmark_options)
+    options = workload_profile.inferencex_options(inferencex_mode)
     host_port = _endpoint_host_port(workload_profile)
     if host_port is None:
         options.setdefault("base_url", workload_profile.endpoint.base_url)

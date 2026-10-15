@@ -10,6 +10,11 @@ pytest_plugins = ["production_test_framework.reporting.report_plugin"]
 
 DEFAULT_PROFILE = "default"
 
+# Mirrors profiler_otel.profiles.InferencexMode, which this conftest does not import: the
+# dashboards suite shares it and has no use for the profile models.
+INFERENCEX_MODES = ("fixed", "agentic")
+DEFAULT_INFERENCEX_MODE = "fixed"
+
 
 def pytest_addoption(parser):
     group = parser.getgroup("mosaic")
@@ -33,6 +38,17 @@ def pytest_addoption(parser):
             "Directory of profile YAML files; repeatable. Defaults to the in-repo "
             "profiler_otel/profiles/. Use this option so that a "
             "private repo can supply its own profiles without forking this suite."
+        ),
+    )
+    group.addoption(
+        "--inferencex-mode",
+        action="store",
+        default=DEFAULT_INFERENCEX_MODE,
+        choices=INFERENCEX_MODES,
+        help=(
+            "Load shape for the InferenceX workload: 'fixed' runs the profile's "
+            "benchmark_options as written; 'agentic' layers its agentic_options over them "
+            f"(default: {DEFAULT_INFERENCEX_MODE})."
         ),
     )
 
