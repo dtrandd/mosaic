@@ -58,19 +58,12 @@ class MetricSet(StrEnum):
 
 
 class InferencexMode(StrEnum):
-    """The shape of load the InferenceX workload drives.
-
-    `fixed` runs a profile's `benchmark_options` as written. `agentic` layers its
-    `agentic_options` over them, or `DEFAULT_AGENTIC_OPTIONS` when it declares none.
-    """
+    """The shape of load the InferenceX workload drives."""
 
     FIXED = "fixed"
     AGENTIC = "agentic"
 
 
-#: Agentic load for a profile that declares no `agentic_options` of its own: long prompts
-#: sharing a prefix, as an agent re-sends its growing context, and short answers, as a tool
-#: call is. Small enough to finish well inside the default profile's workload timeout.
 DEFAULT_AGENTIC_OPTIONS: dict[str, Any] = {
     "num_prompts": 32,
     "max_concurrency": 8,
@@ -266,11 +259,7 @@ class Profile(_Model):
         return self.deployment.external
 
     def inferencex_options(self, mode: InferencexMode) -> dict[str, Any]:
-        """The benchmark options for *mode*, as a fresh dict the caller may extend.
-
-        Agentic options are layered over `benchmark_options` rather than replacing them, so
-        flags that do not describe the load's shape - warmups, `ignore_eos` - apply to both.
-        """
+        """The benchmark options for *mode*, as a fresh dict the caller may extend."""
         options = dict(self.benchmark_options)
         if mode is InferencexMode.AGENTIC:
             if self.agentic_options is None:

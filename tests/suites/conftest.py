@@ -10,8 +10,6 @@ pytest_plugins = ["production_test_framework.reporting.report_plugin"]
 
 DEFAULT_PROFILE = "default"
 
-# Mirrors profiler_otel.profiles.InferencexMode, which this conftest does not import: the
-# dashboards suite shares it and has no use for the profile models.
 INFERENCEX_MODES = ("fixed", "agentic")
 DEFAULT_INFERENCEX_MODE = "agentic"
 
