@@ -26,6 +26,10 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import yaml
+from production_test_framework.workload.inferencex_workload import (
+    InferencexMode,
+    inferencex_options,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -55,25 +59,6 @@ class MetricSet(StrEnum):
     AGGREGATED_DENSE = "aggregated_dense"
     AGGREGATED_MOE = "aggregated_moe"
     DISAGG_MOE = "disagg_moe"
-
-
-class InferencexMode(StrEnum):
-    """The shape of load the InferenceX workload drives."""
-
-    FIXED = "fixed"
-    AGENTIC = "agentic"
-
-
-DEFAULT_INFERENCEX_MODE = InferencexMode.AGENTIC
-
-DEFAULT_AGENTIC_OPTIONS: dict[str, Any] = {
-    "num_prompts": 32,
-    "max_concurrency": 8,
-    "random_input_len": 8192,
-    "random_output_len": 64,
-    "random_prefix_len": 1024,
-    "random_range_ratio": 0.5,
-}
 
 
 class ProfileError(Exception):
@@ -262,13 +247,7 @@ class Profile(_Model):
 
     def inferencex_options(self, mode: InferencexMode) -> dict[str, Any]:
         """The benchmark options for *mode*, as a fresh dict the caller may extend."""
-        options = dict(self.benchmark_options)
-        if mode is InferencexMode.AGENTIC:
-            if self.agentic_options is None:
-                options.update(DEFAULT_AGENTIC_OPTIONS)
-            else:
-                options.update(self.agentic_options)
-        return options
+        return inferencex_options(self.benchmark_options, self.agentic_options, mode)
 
 
 class _ProfileSpec(_Model):

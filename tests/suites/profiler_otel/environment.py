@@ -18,6 +18,7 @@ from production_test_framework.reporting.environment import (
     profile_rows,
     run_rows,
 )
+from production_test_framework.workload.inferencex_workload import InferencexMode
 
 from profiler_otel import profiles
 
@@ -27,7 +28,7 @@ __all__ = ["environment_rows"]
 def environment_rows(
     config,
     profile: profiles.Profile,
-    inferencex_mode: profiles.InferencexMode,
+    inferencex_mode: InferencexMode,
     prometheus_url: str,
     grafana_url: str,
 ) -> list[list[str]]:

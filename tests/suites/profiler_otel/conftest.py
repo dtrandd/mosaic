@@ -16,7 +16,10 @@ import pytest
 import requests
 from production_test_framework.docker import remove_containers_by_label
 from production_test_framework.vllm import VllmClient, VllmConfig
-from production_test_framework.workload.inferencex_workload import InferencexWorkload
+from production_test_framework.workload.inferencex_workload import (
+    InferencexMode,
+    InferencexWorkload,
+)
 from production_test_framework.workload.nccl_workload import NcclWorkload
 from production_test_framework.workload.prompt_workload import PromptWorkload
 
@@ -368,11 +371,11 @@ def workload_profile(request) -> profiles.Profile:
 
 
 @pytest.fixture(scope="session")
-def inferencex_mode(request) -> profiles.InferencexMode:
+def inferencex_mode(request) -> InferencexMode:
     """
     The load shape for the InferenceX workload, from ``--inferencex-mode``.
     """
-    return profiles.InferencexMode(request.config.getoption("--inferencex-mode"))
+    return InferencexMode(request.config.getoption("--inferencex-mode"))
 
 
 @pytest.fixture(scope="session")
@@ -558,7 +561,7 @@ def prompt_workload(vllm_config: VllmConfig, profiler_pipeline_warm):
 @pytest.fixture(scope="session")
 def inferencex_workload(
     workload_profile: profiles.Profile,
-    inferencex_mode: profiles.InferencexMode,
+    inferencex_mode: InferencexMode,
     profiler_pipeline_warm,
 ):
     """

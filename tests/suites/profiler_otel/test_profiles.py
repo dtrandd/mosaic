@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from production_test_framework.workload.inferencex_workload import (
+    DEFAULT_AGENTIC_OPTIONS,
+    InferencexMode,
+)
 from pydantic import ValidationError
 
 from profiler_otel import profiles
@@ -366,7 +370,7 @@ class TestProfileValidation:
         raw["agentic_options"] = {"random_input_len": 8192}
         profile = _parse(raw)
 
-        assert profile.inferencex_options(profiles.InferencexMode.FIXED) == {
+        assert profile.inferencex_options(InferencexMode.FIXED) == {
             "num_prompts": 4,
             "ignore_eos": True,
         }, "fixed mode should not apply agentic_options"
@@ -384,7 +388,7 @@ class TestProfileValidation:
         raw["agentic_options"] = {"num_prompts": 8, "random_input_len": 8192}
         profile = _parse(raw)
 
-        assert profile.inferencex_options(profiles.InferencexMode.AGENTIC) == {
+        assert profile.inferencex_options(InferencexMode.AGENTIC) == {
             "num_prompts": 8,
             "ignore_eos": True,
             "random_input_len": 8192,
@@ -401,10 +405,10 @@ class TestProfileValidation:
         profile = _parse(_profile_file())
 
         assert profile.agentic_options is None, "agentic_options should be optional"
-        assert profile.inferencex_options(profiles.InferencexMode.AGENTIC) == {
+        assert profile.inferencex_options(InferencexMode.AGENTIC) == {
             "num_prompts": 4,
             "ignore_eos": True,
-            **profiles.DEFAULT_AGENTIC_OPTIONS,
+            **DEFAULT_AGENTIC_OPTIONS,
         }, "agentic mode should layer DEFAULT_AGENTIC_OPTIONS over benchmark_options"
 
     def test_inferencex_options_returns_a_copy(self) -> None:
@@ -417,12 +421,10 @@ class TestProfileValidation:
         """
         profile = _parse(_profile_file())
 
-        profile.inferencex_options(profiles.InferencexMode.AGENTIC)["model"] = "other/model"
+        profile.inferencex_options(InferencexMode.AGENTIC)["model"] = "other/model"
 
         assert "model" not in profile.benchmark_options, "benchmark_options was modified"
-        assert "model" not in profiles.DEFAULT_AGENTIC_OPTIONS, (
-            "DEFAULT_AGENTIC_OPTIONS was modified"
-        )
+        assert "model" not in DEFAULT_AGENTIC_OPTIONS, "DEFAULT_AGENTIC_OPTIONS was modified"
 
     def test_a_disaggregated_profile_round_trips(self) -> None:
         """

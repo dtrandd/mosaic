@@ -4,8 +4,10 @@
 import os
 
 import pytest
-
-from profiler_otel.profiles import DEFAULT_INFERENCEX_MODE, InferencexMode
+from production_test_framework.workload.inferencex_workload import (
+    DEFAULT_INFERENCEX_MODE,
+    InferencexMode,
+)
 
 pytest_plugins = ["production_test_framework.reporting.report_plugin"]
 
