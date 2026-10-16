@@ -67,7 +67,7 @@ the deployment configuration it refers to can be moved into another repository t
 | `timeouts` | `workload`, `metrics_available` and `quiesce`, in seconds |
 | `expected_metrics` | Names a metric list defined in the suite's `conftest.py` |
 | `benchmark_options` | Passed verbatim to the benchmark workload |
-| `agentic_options` | Optional. Layered over `benchmark_options` when the run passes `--inferencex-mode agentic` |
+| `agentic_options` | Optional. Layered over `benchmark_options` unless the run passes `--inferencex-mode fixed` |
 
 ### Benchmark options
 
@@ -86,12 +86,12 @@ endpoint:
 
 ### Agentic load
 
-`--inferencex-mode agentic` reshapes the InferenceX workload into the traffic an agent produces:
+By default the InferenceX workload runs in agentic mode, shaped like the traffic an agent produces:
 long prompts that share a prefix, as an agent re-sends its growing context each turn, and short
 answers, as a tool call is. The mode layers `agentic_options` over `benchmark_options`, so a key
 in both takes the agentic value and flags such as `ignore_eos` carry over unchanged. A profile
-without `agentic_options` gets `DEFAULT_AGENTIC_OPTIONS` from `profiles.py`. The default mode,
-`fixed`, runs `benchmark_options` as written and ignores `agentic_options`.
+without `agentic_options` gets `DEFAULT_AGENTIC_OPTIONS` from `profiles.py`. Pass
+`--inferencex-mode fixed` to run `benchmark_options` as written and ignore `agentic_options`.
 
 ```yaml title="Sizing the agentic load for a larger machine"
 agentic_options:
