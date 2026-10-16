@@ -64,6 +64,8 @@ class InferencexMode(StrEnum):
     AGENTIC = "agentic"
 
 
+DEFAULT_INFERENCEX_MODE = InferencexMode.AGENTIC
+
 DEFAULT_AGENTIC_OPTIONS: dict[str, Any] = {
     "num_prompts": 32,
     "max_concurrency": 8,

@@ -5,13 +5,12 @@ import os
 
 import pytest
 
+from profiler_otel.profiles import DEFAULT_INFERENCEX_MODE, InferencexMode
+
 pytest_plugins = ["production_test_framework.reporting.report_plugin"]
 
 
 DEFAULT_PROFILE = "default"
-
-INFERENCEX_MODES = ("fixed", "agentic")
-DEFAULT_INFERENCEX_MODE = "agentic"
 
 
 def pytest_addoption(parser):
@@ -41,12 +40,12 @@ def pytest_addoption(parser):
     group.addoption(
         "--inferencex-mode",
         action="store",
-        default=DEFAULT_INFERENCEX_MODE,
-        choices=INFERENCEX_MODES,
+        default=DEFAULT_INFERENCEX_MODE.value,
+        choices=[mode.value for mode in InferencexMode],
         help=(
             "Load shape for the InferenceX workload: 'fixed' runs the profile's "
             "benchmark_options as written; 'agentic' layers its agentic_options over them "
-            f"(default: {DEFAULT_INFERENCEX_MODE})."
+            f"(default: {DEFAULT_INFERENCEX_MODE.value})."
         ),
     )
 
